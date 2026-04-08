@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm list:*)",
+      "Bash(npm prefix:*)",
+      "Bash(npm bin:*)",
+      "Bash(npm config:*)",
+      "Bash(where claude:*)",
+      "Bash(powershell.exe -Command \"Get-Command claude -ErrorAction SilentlyContinue | Format-List Source\")",
+      "Bash(echo $PATH)",
+      "Bash(powershell.exe -Command \"Get-ExecutionPolicy -List\" 2>/dev/null)",
+      "Bash(powershell.exe -Command \"claude --version\" 2>&1)",
+      "mcp__context7-1__resolve-library-id",
+      "mcp__context7-1__query-docs",
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(claude --version)",
+      "Bash(npm install:*)",
+      "Bash(npx electron-builder:*)",
+      "Bash(npx electron-vite:*)",
+      "Bash(npx electron:*)",
+      "Bash(node node_modules/electron/install.js)",
+      "Bash(ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__take_screenshot",
+      "Bash(tasklist)",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5174/src/main.tsx)",
+      "Bash(node:*)",
+      "Bash(taskkill //F //IM electron.exe)",
+      "Bash(where claude.exe)",
+      "Bash(where claude.cmd)",
+      "Read(//d/App/node/**)"
+    ]
+  }
+}

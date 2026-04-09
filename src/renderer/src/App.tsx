@@ -10,44 +10,45 @@ export default function App() {
   const sessionState = useSessionWatcher()
   const claudeState = useClaudeManager()
   const [activeTab, setActiveTab] = useState<TabType>('conversation')
+  // Track the processKey for the "new session" terminal
+  const [newSessionProcessKey, setNewSessionProcessKey] = useState<string | null>(null)
 
-  // New session: spawn claude, switch to terminal (no JSONL history yet)
-  const handleNewSession = useCallback((project: string) => {
-    claudeState.spawn(project)
-    setActiveTab('terminal')
-  }, [claudeState])
+  // New session: spawn PTY immediately, switch to terminal tab
+  const handleNewSession = useCallback(async (project: string) => {
+    const pk = await claudeState.connectNew(project)
+    if (pk) {
+      setNewSessionProcessKey(pk)
+      sessionState.selectProject(project)
+      setActiveTab('terminal')
+    }
+  }, [claudeState, sessionState])
 
-  // Select session in sidebar: resume PTY + show conversation view
+  // Select session in sidebar: only load history, don't connect PTY
   const handleSelectSession = useCallback((project: string, sessionId: string) => {
+    setNewSessionProcessKey(null)
     sessionState.selectSession(project, sessionId)
-    claudeState.resume(project, sessionId)
     setActiveTab('conversation')
-  }, [sessionState, claudeState])
-
-  // Resume button: same as select — resume PTY + conversation view
-  const handleResumeSession = useCallback((project: string, sessionId: string) => {
-    sessionState.selectSession(project, sessionId)
-    claudeState.resume(project, sessionId)
-    setActiveTab('conversation')
-  }, [sessionState, claudeState])
+  }, [sessionState])
 
   return (
     <div className="app-layout">
       <Sidebar
         projects={sessionState.projects}
+        pendingSessions={sessionState.pendingSessions}
         selectedProject={sessionState.selectedProject}
         selectedSession={sessionState.selectedSession}
         activeProcesses={claudeState.activeProcesses}
+        connections={claudeState.connections}
         onSelectProject={sessionState.selectProject}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
-        onResumeSession={handleResumeSession}
       />
       <MainContent
         sessionState={sessionState}
         claudeState={claudeState}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        newSessionProcessKey={newSessionProcessKey}
       />
     </div>
   )

@@ -12,6 +12,8 @@ export function useSessionWatcher() {
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [sessionDetails, setSessionDetails] = useState<SessionDetailsPayload | null>(null)
+  // Pending sessions: tempId → SessionMeta (for "New Session" before JSONL exists)
+  const [pendingSessions, setPendingSessions] = useState<Map<string, SessionMeta>>(new Map())
 
   // Initial data
   useEffect(() => {
@@ -21,7 +23,7 @@ export function useSessionWatcher() {
     return cleanup
   }, [])
 
-  // Session created
+  // Session created (from JSONL file) — replace pending if applicable
   useEffect(() => {
     const cleanup = window.electronAPI.onSessionCreated((data: SessionCreatedPayload) => {
       setProjects((prev) =>
@@ -31,6 +33,22 @@ export function useSessionWatcher() {
             : p
         )
       )
+      // If we had a pending session for this project, replace selection
+      setPendingSessions((prev) => {
+        const next = new Map(prev)
+        // Find and remove the pending session for this project
+        for (const [tempId, meta] of next) {
+          if (meta.projectSanitizedName === data.projectSanitizedName) {
+            next.delete(tempId)
+            // Update selection from pending tempId to real sessionId
+            setSelectedSession((cur) => cur === tempId ? data.meta.sessionId : cur)
+            // Load details for the real session
+            refreshDetails(data.projectSanitizedName, data.meta.sessionId)
+            break
+          }
+        }
+        return next
+      })
     })
     return cleanup
   }, [])
@@ -41,16 +59,10 @@ export function useSessionWatcher() {
       setProjects((prev) =>
         prev.map((p) =>
           p.sanitizedName === data.projectSanitizedName
-            ? {
-                ...p,
-                sessions: p.sessions.map((s) =>
-                  s.sessionId === data.sessionId ? data.updatedMeta : s
-                )
-              }
+            ? { ...p, sessions: p.sessions.map((s) => s.sessionId === data.sessionId ? data.updatedMeta : s) }
             : p
         )
       )
-      // If viewing this session, refresh details
       if (selectedSession === data.sessionId) {
         refreshDetails(data.projectSanitizedName, data.sessionId)
       }
@@ -77,13 +89,18 @@ export function useSessionWatcher() {
   }, [selectedSession])
 
   const refreshDetails = useCallback(async (project: string, sessionId: string) => {
+    // Don't try to load details for pending sessions
+    if (sessionId.startsWith('__pending_')) {
+      setSessionDetails({ lines: [], meta: pendingSessions.get(sessionId) || null as any })
+      return
+    }
     try {
       const details = await window.electronAPI.getSessionDetails(project, sessionId)
       setSessionDetails(details)
     } catch (err) {
       console.error('Failed to load session details:', err)
     }
-  }, [])
+  }, [pendingSessions])
 
   const selectProject = useCallback((name: string) => {
     setSelectedProject((prev) => (prev === name ? null : name))
@@ -100,12 +117,22 @@ export function useSessionWatcher() {
     [refreshDetails]
   )
 
+  const addPendingSession = useCallback((project: string, meta: SessionMeta) => {
+    setPendingSessions((prev) => {
+      const next = new Map(prev)
+      next.set(meta.sessionId, meta)
+      return next
+    })
+  }, [])
+
   return {
     projects,
+    pendingSessions,
     selectedProject,
     selectedSession,
     sessionDetails,
     selectProject,
-    selectSession
+    selectSession,
+    addPendingSession
   }
 }

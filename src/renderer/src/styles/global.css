@@ -239,6 +239,88 @@ body {
   flex-shrink: 0;
 }
 
+/* Status dots per session */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-connected {
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success);
+}
+
+.dot-offline {
+  background: var(--text-muted);
+}
+
+.dot-pending {
+  background: #f9e2af;
+  box-shadow: 0 0 4px #f9e2af;
+}
+
+.pending-label {
+  color: #f9e2af;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.connection-counter {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
+/* Connect / Disconnect bars */
+.connect-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(137, 180, 250, 0.06);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.connect-bar-active {
+  background: rgba(166, 227, 161, 0.06);
+  border-color: var(--success);
+}
+
+.connect-bar-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.connect-error {
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.btn-connect {
+  background: var(--success) !important;
+  color: var(--bg-primary) !important;
+}
+
+.btn-connect:hover {
+  background: #94e2d5 !important;
+}
+
+.btn-disconnect {
+  background: var(--text-muted) !important;
+  color: var(--bg-primary) !important;
+  font-size: 12px;
+}
+
+.btn-disconnect:hover {
+  background: var(--danger) !important;
+}
+
 /* Main content */
 .main-content {
   flex: 1;
@@ -468,6 +550,57 @@ body {
   min-height: 0;
 }
 
+/* Thinking indicator */
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  margin-top: 4px;
+  border-radius: 8px;
+  background: var(--assistant-bg);
+  border: 1px solid var(--border);
+}
+
+.thinking-dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.thinking-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: thinking-bounce 1.4s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.3;
+  }
+  40% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+.thinking-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .input-bar {
   display: flex;
   gap: 8px;
@@ -639,6 +772,13 @@ body {
   padding: 10px 12px;
   background: rgba(249, 226, 175, 0.08);
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.permission-bar-top {
+  display: flex;
   align-items: center;
   gap: 12px;
 }
@@ -648,12 +788,88 @@ body {
   font-size: 12px;
   color: #f9e2af;
   font-family: 'Consolas', 'Monaco', monospace;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.permission-countdown {
+  color: #fab387;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(250, 179, 135, 0.15);
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.permission-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .permission-actions {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.permission-manual {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.permission-manual-input {
+  flex: 1;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  outline: none;
+}
+
+.permission-manual-input:focus {
+  border-color: #f9e2af;
+}
+
+.permission-manual-input::placeholder {
+  color: var(--text-muted);
+}
+
+.btn-manual {
+  background: var(--text-muted);
+  color: var(--bg-primary);
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn-manual:hover {
+  background: var(--text-secondary);
+}
+
+.permission-bar-failed {
+  border-color: var(--danger);
+  background: rgba(243, 139, 168, 0.08);
+}
+
+.permission-failed-badge {
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(243, 139, 168, 0.2);
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.permission-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-top: 4px;
 }
 
 .btn-allow {

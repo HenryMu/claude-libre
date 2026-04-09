@@ -93,18 +93,25 @@ export interface SessionDeletedPayload {
   sessionId: string
 }
 
+/** PTY output data — routed by processKey */
 export interface PtyDataPayload {
+  processKey: string
   projectSanitizedName: string
   data: string
 }
 
+/** PTY process spawned */
 export interface PtySpawnedPayload {
+  processKey: string
   projectSanitizedName: string
+  sessionId: string | null
   cwd: string
   pid: number
 }
 
+/** PTY process exited */
 export interface PtyExitedPayload {
+  processKey: string
   projectSanitizedName: string
   exitCode: number
   signal?: number
@@ -117,12 +124,29 @@ export interface SessionDetailsPayload {
   meta: SessionMeta
 }
 
+/** A running PTY process — keyed by processKey */
 export interface ActiveProcess {
+  processKey: string
   projectSanitizedName: string
   pid: number
   sessionId: string | null
   status: 'spawning' | 'running' | 'exiting'
   cwd: string
+}
+
+export interface PermissionPromptPayload {
+  processKey: string
+  projectSanitizedName: string
+  prompt: string
+  timeout: number
+}
+
+export interface PermissionClearPayload {
+  processKey: string
+}
+
+export interface PermissionFailedPayload {
+  processKey: string
 }
 
 // ===== Electron API (exposed via preload) =====
@@ -134,20 +158,26 @@ export interface ElectronAPI {
   onSessionUpdated: (callback: (data: SessionUpdatedPayload) => void) => () => void
   onSessionDeleted: (callback: (data: SessionDeletedPayload) => void) => () => void
 
-  // Terminal events
+  // Terminal events — routed by processKey
   onPtyData: (callback: (data: PtyDataPayload) => void) => () => void
   onPtySpawned: (callback: (data: PtySpawnedPayload) => void) => () => void
   onPtyExited: (callback: (data: PtyExitedPayload) => void) => () => void
 
-  // Actions
-  spawnClaude: (projectSanitizedName: string, cols: number, rows: number) => Promise<{ pid: number }>
-  resumeSession: (projectSanitizedName: string, sessionId: string, cols: number, rows: number) => Promise<{ pid: number }>
-  killClaude: (projectSanitizedName: string) => Promise<void>
-  ptyWrite: (projectSanitizedName: string, data: string) => void
-  ptyResize: (projectSanitizedName: string, cols: number, rows: number) => void
+  // Permission prompt detected in main process
+  onPermissionPrompt: (callback: (data: PermissionPromptPayload) => void) => () => void
+  onPermissionClear: (callback: (data: PermissionClearPayload) => void) => () => void
+  onPermissionFailed: (callback: (data: PermissionFailedPayload) => void) => () => void
+
+  // Actions — all use processKey for routing
+  spawnClaude: (projectSanitizedName: string, cols: number, rows: number) => Promise<{ processKey: string; pid: number }>
+  resumeSession: (projectSanitizedName: string, sessionId: string, cols: number, rows: number) => Promise<{ processKey: string; pid: number }>
+  killClaude: (processKey: string) => Promise<void>
+  ptyWrite: (processKey: string, data: string) => void
+  ptyResize: (processKey: string, cols: number, rows: number) => void
+  respondPermission: (processKey: string, response: string) => void
 
   // Queries
   getSessionDetails: (projectSanitizedName: string, sessionId: string) => Promise<SessionDetailsPayload>
-  isProcessRunning: (projectSanitizedName: string) => Promise<boolean>
+  isProcessRunning: (processKey: string) => Promise<boolean>
   getActiveProcesses: () => Promise<ActiveProcess[]>
 }

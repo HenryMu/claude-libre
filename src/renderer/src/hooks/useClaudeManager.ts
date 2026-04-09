@@ -1,80 +1,116 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { ActiveProcess, PtySpawnedPayload, PtyExitedPayload } from '../../../shared/types'
 
+export interface ConnectionInfo {
+  processKey: string
+  sessionId: string | null
+  projectSanitizedName: string
+  pid: number
+}
+
 export function useClaudeManager() {
   const [activeProcesses, setActiveProcesses] = useState<ActiveProcess[]>([])
-  const [activeTerminalProject, setActiveTerminalProject] = useState<string | null>(null)
+  const [connections, setConnections] = useState<Map<string, ConnectionInfo>>(new Map())
+  // key: processKey
 
   useEffect(() => {
     const unsubSpawned = window.electronAPI.onPtySpawned((data: PtySpawnedPayload) => {
       setActiveProcesses((prev) => {
-        const filtered = prev.filter((p) => p.projectSanitizedName !== data.projectSanitizedName)
-        return [
-          ...filtered,
-          {
-            projectSanitizedName: data.projectSanitizedName,
-            pid: data.pid,
-            sessionId: null,
-            status: 'running' as const,
-            cwd: data.cwd
-          }
-        ]
+        const filtered = prev.filter((p) => p.processKey !== data.processKey)
+        return [...filtered, {
+          processKey: data.processKey,
+          projectSanitizedName: data.projectSanitizedName,
+          pid: data.pid,
+          sessionId: data.sessionId,
+          status: 'running' as const,
+          cwd: data.cwd
+        }]
+      })
+      setConnections((prev) => {
+        const next = new Map(prev)
+        next.set(data.processKey, {
+          processKey: data.processKey,
+          sessionId: data.sessionId,
+          projectSanitizedName: data.projectSanitizedName,
+          pid: data.pid
+        })
+        return next
       })
     })
 
     const unsubExited = window.electronAPI.onPtyExited((data: PtyExitedPayload) => {
-      setActiveProcesses((prev) =>
-        prev.filter((p) => p.projectSanitizedName !== data.projectSanitizedName)
-      )
-      setActiveTerminalProject((prev) =>
-        prev === data.projectSanitizedName ? null : prev
-      )
+      setActiveProcesses((prev) => prev.filter((p) => p.processKey !== data.processKey))
+      setConnections((prev) => {
+        const next = new Map(prev)
+        next.delete(data.processKey)
+        return next
+      })
     })
 
-    return () => {
-      unsubSpawned()
-      unsubExited()
-    }
+    return () => { unsubSpawned(); unsubExited() }
   }, [])
 
-  const spawn = useCallback(async (project: string) => {
+  /** Connect to an existing session (resume) */
+  const connect = useCallback(async (project: string, sessionId: string) => {
     try {
-      await window.electronAPI.spawnClaude(project, 80, 24)
-      setActiveTerminalProject(project)
+      const result = await window.electronAPI.resumeSession(project, sessionId, 80, 24)
+      return result.processKey
     } catch (err) {
-      console.error('Failed to spawn claude:', err)
+      console.error('Failed to connect session:', err)
+      return null
     }
   }, [])
 
-  const resume = useCallback(async (project: string, sessionId: string) => {
+  /** Start a brand new session */
+  const connectNew = useCallback(async (project: string) => {
     try {
-      await window.electronAPI.resumeSession(project, sessionId, 80, 24)
-      setActiveTerminalProject(project)
+      const result = await window.electronAPI.spawnClaude(project, 80, 24)
+      return result.processKey
     } catch (err) {
-      console.error('Failed to resume session:', err)
+      console.error('Failed to start new session:', err)
+      return null
     }
   }, [])
 
-  const kill = useCallback(async (project: string) => {
+  /** Disconnect a specific process */
+  const disconnect = useCallback(async (processKey: string) => {
     try {
-      await window.electronAPI.killClaude(project)
+      await window.electronAPI.killClaude(processKey)
     } catch (err) {
-      console.error('Failed to kill claude:', err)
+      console.error('Failed to disconnect:', err)
     }
   }, [])
 
-  const isRunning = useCallback(
-    (project: string) => activeProcesses.some((p) => p.projectSanitizedName === project),
-    [activeProcesses]
-  )
+  /** Check if a session (by sessionId) is currently connected */
+  const isConnected = useCallback((sessionId: string | null) => {
+    if (!sessionId) return false
+    for (const conn of connections.values()) {
+      if (conn.sessionId === sessionId) return true
+    }
+    return false
+  }, [connections])
+
+  /** Get processKey for a connected session */
+  const getProcessKey = useCallback((sessionId: string | null) => {
+    if (!sessionId) return null
+    for (const conn of connections.values()) {
+      if (conn.sessionId === sessionId) return conn.processKey
+    }
+    return null
+  }, [connections])
+
+  const activeCount = connections.size
+  const maxConnections = 10
 
   return {
     activeProcesses,
-    spawn,
-    resume,
-    kill,
-    isRunning,
-    activeTerminalProject,
-    setActiveTerminalProject
+    connections,
+    connect,
+    connectNew,
+    disconnect,
+    isConnected,
+    getProcessKey,
+    activeCount,
+    maxConnections
   }
 }

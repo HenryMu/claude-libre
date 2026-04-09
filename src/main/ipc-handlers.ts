@@ -11,7 +11,7 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'spawn-claude',
     async (_, projectSanitizedName: string, cols: number, rows: number) => {
-      return claudeManager.spawn(projectSanitizedName, cols, rows)
+      return claudeManager.spawnNew(projectSanitizedName, cols, rows)
     }
   )
 
@@ -28,23 +28,21 @@ export function registerIpcHandlers(
     }
   )
 
-  ipcMain.handle('kill-claude', async (_, projectSanitizedName: string) => {
-    return claudeManager.killProcess(projectSanitizedName)
+  ipcMain.handle('kill-claude', async (_, processKey: string) => {
+    return claudeManager.killProcess(processKey)
   })
 
-  ipcMain.on(
-    'pty-write',
-    (_, projectSanitizedName: string, data: string) => {
-      claudeManager.write(projectSanitizedName, data)
-    }
-  )
+  ipcMain.on('pty-write', (_, processKey: string, data: string) => {
+    claudeManager.write(processKey, data)
+  })
 
-  ipcMain.on(
-    'pty-resize',
-    (_, projectSanitizedName: string, cols: number, rows: number) => {
-      claudeManager.resize(projectSanitizedName, cols, rows)
-    }
-  )
+  ipcMain.on('pty-resize', (_, processKey: string, cols: number, rows: number) => {
+    claudeManager.resize(processKey, cols, rows)
+  })
+
+  ipcMain.on('permission-respond', (_, processKey: string, response: string) => {
+    claudeManager.respondPermission(processKey, response)
+  })
 
   // ===== Session data queries =====
 
@@ -55,8 +53,8 @@ export function registerIpcHandlers(
     }
   )
 
-  ipcMain.handle('is-process-running', (_, projectSanitizedName: string) => {
-    return claudeManager.isRunning(projectSanitizedName)
+  ipcMain.handle('is-process-running', (_, processKey: string) => {
+    return claudeManager.isRunning(processKey)
   })
 
   ipcMain.handle('get-active-processes', () => {

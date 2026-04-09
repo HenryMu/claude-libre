@@ -35,7 +35,9 @@
       "Bash(git branch:*)",
       "Bash(git push:*)",
       "Bash(find C:/Users/aiweo/.claude/projects/ -name \"*.jsonl\" ! -name \"agent-*\" -exec du -b {} +)",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "Bash(taskkill /F /IM electron.exe)",
+      "Bash(npm run:*)"
     ]
   }
 }

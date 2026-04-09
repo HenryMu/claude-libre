@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import type { SessionMeta, ActiveProcess, JsonlLine, SessionDetailsPayload } from '../../../shared/types'
 import type { TabType } from '../App'
+import type { ConnectionInfo } from '../hooks/useClaudeManager'
 
 interface ProjectData {
   sanitizedName: string
@@ -10,6 +11,7 @@ interface ProjectData {
 
 interface SessionState {
   projects: ProjectData[]
+  pendingSessions: Map<string, SessionMeta>
   selectedProject: string | null
   selectedSession: string | null
   selectProject: (name: string) => void
@@ -19,12 +21,14 @@ interface SessionState {
 
 interface ClaudeState {
   activeProcesses: ActiveProcess[]
-  spawn: (project: string) => void
-  resume: (project: string, sessionId: string) => void
-  kill: (project: string) => void
-  isRunning: (project: string) => boolean
-  activeTerminalProject: string | null
-  setActiveTerminalProject: (project: string | null) => void
+  connections: Map<string, ConnectionInfo>
+  connect: (project: string, sessionId: string) => Promise<string | null>
+  connectNew: (project: string) => Promise<string | null>
+  disconnect: (processKey: string) => Promise<void>
+  isConnected: (sessionId: string | null) => boolean
+  getProcessKey: (sessionId: string | null) => string | null
+  activeCount: number
+  maxConnections: number
 }
 
 interface MainContentProps {
@@ -32,12 +36,21 @@ interface MainContentProps {
   claudeState: ClaudeState
   activeTab: TabType
   onTabChange: (tab: TabType) => void
+  newSessionProcessKey: string | null
 }
 
-export default function MainContent({ sessionState, claudeState, activeTab, onTabChange }: MainContentProps) {
+export default function MainContent({ sessionState, claudeState, activeTab, onTabChange, newSessionProcessKey }: MainContentProps) {
   const { selectedProject, selectedSession, sessionDetails, projects } = sessionState
   const project = projects.find((p) => p.sanitizedName === selectedProject)
-  const hasTerminal = claudeState.activeProcesses.some((p) => p.projectSanitizedName === selectedProject)
+
+  // Determine connection state for the selected session
+  const isSelectedConnected = claudeState.isConnected(selectedSession)
+  const selectedProcessKey = claudeState.getProcessKey(selectedSession)
+  const isPending = selectedSession?.startsWith('__pending_') || false
+
+  // For new session, the terminal uses newSessionProcessKey
+  const terminalProcessKey = newSessionProcessKey || selectedProcessKey
+  const terminalConnected = !!newSessionProcessKey || isSelectedConnected
 
   if (!selectedProject || !project) {
     return (
@@ -65,23 +78,29 @@ export default function MainContent({ sessionState, claudeState, activeTab, onTa
       </div>
 
       <div className="tab-content">
-        {activeTab === 'conversation' ? (
+        <div style={{ display: activeTab === 'conversation' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
           <ConversationTab
             project={selectedProject}
             realPath={project.realPath}
             selectedSession={selectedSession}
             sessionDetails={sessionDetails}
-            hasTerminal={hasTerminal}
-            onNewSession={() => claudeState.spawn(selectedProject)}
+            isConnected={isSelectedConnected}
+            processKey={selectedProcessKey}
+            isPending={isPending}
+            claudeState={claudeState}
           />
-        ) : (
+        </div>
+        <div style={{ display: activeTab === 'terminal' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
           <TerminalTab
             project={selectedProject}
             realPath={project.realPath}
-            hasTerminal={hasTerminal}
-            onNewSession={() => claudeState.spawn(selectedProject)}
+            isConnected={terminalConnected}
+            processKey={terminalProcessKey}
+            isPending={false}
+            selectedSession={selectedSession}
+            claudeState={claudeState}
           />
-        )}
+        </div>
       </div>
     </div>
   )
@@ -89,81 +108,146 @@ export default function MainContent({ sessionState, claudeState, activeTab, onTa
 
 // ===== Conversation Tab =====
 
-function ConversationTab({ project, realPath, selectedSession, sessionDetails, hasTerminal, onNewSession }: {
+function ConversationTab({ project, realPath, selectedSession, sessionDetails, isConnected, processKey, isPending, claudeState }: {
   project: string
   realPath: string
   selectedSession: string | null
   sessionDetails: SessionDetailsPayload | null
-  hasTerminal: boolean
-  onNewSession: () => void
+  isConnected: boolean
+  processKey: string | null
+  isPending: boolean
+  claudeState: ClaudeState
 }) {
   const [inputValue, setInputValue] = useState('')
   const [permissionPrompt, setPermissionPrompt] = useState<string | null>(null)
+  const [permissionCountdown, setPermissionCountdown] = useState(0)
+  const [permissionFailed, setPermissionFailed] = useState(false)
+  const [manualInput, setManualInput] = useState('')
+  const [isThinking, setIsThinking] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const ptyBufferRef = useRef('')
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const prevAssistantCount = useRef(0)
 
-  // Auto-scroll on new messages
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [sessionDetails, isThinking])
+
+  // Reset on session change
+  useEffect(() => {
+    setIsThinking(false)
+    setPermissionPrompt(null)
+    setConnectError(null)
+    prevAssistantCount.current = 0
+  }, [selectedSession])
+
+  // Detect new assistant message → stop thinking
+  useEffect(() => {
+    if (!sessionDetails) return
+    const count = sessionDetails.lines.filter(l => l.type === 'assistant').length
+    if (count > prevAssistantCount.current) setIsThinking(false)
+    prevAssistantCount.current = count
   }, [sessionDetails])
 
-  // Listen to PTY data for permission prompts
+  // Start thinking on new user message from any source
   useEffect(() => {
-    const unsub = window.electronAPI.onPtyData((payload) => {
-      if (payload.projectSanitizedName !== project) return
-      // Accumulate PTY output, check for permission patterns
-      ptyBufferRef.current += payload.data
-      // Strip ANSI escape codes for pattern matching
-      const stripped = ptyBufferRef.current.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-
-      // Claude Code permission patterns
-      const patterns = [
-        /Allow(?:ing)?\s+(\w+)\s+(?:tool|command|operation|access)[\s\S]{0,80}\?/i,
-        /Do you want to (?:allow|proceed|continue)[\s\S]{0,80}\?/i,
-        /\[Y\/n\]/i,
-        /\[y\/N\]/i,
-        /\(yes\/no\)/i,
-        /\(y\/n\)/i,
-        /Claude wants to (?:run|execute|use|access|write|edit|delete)[\s\S]{0,80}\?/i,
-        /Allow this action\?/i,
-        /Press Enter to (?:allow|accept|confirm)[\s\S]{0,80}/i,
-        /(?:(?:Always|Never|Once)\s+)?\(.*[Yy].*[Nn].*\)/,
-      ]
-
-      for (const pattern of patterns) {
-        const match = stripped.match(pattern)
-        if (match) {
-          // Extract the last ~200 chars around the match for display
-          const idx = match.index || 0
-          const start = Math.max(0, idx - 20)
-          const end = Math.min(stripped.length, idx + match[0].length + 100)
-          setPermissionPrompt(stripped.slice(start, end).trim())
-          // Clear buffer after detecting prompt
-          ptyBufferRef.current = ''
-          break
-        }
-      }
-
-      // Keep buffer bounded
-      if (ptyBufferRef.current.length > 5000) {
-        ptyBufferRef.current = ptyBufferRef.current.slice(-2000)
-      }
+    const unsub = window.electronAPI.onSessionUpdated((data) => {
+      if (data.sessionId !== selectedSession) return
+      const hasUser = data.newLines.some(l => l.type === 'user')
+      const hasAssistant = data.newLines.some(l => l.type === 'assistant')
+      if (hasUser && !hasAssistant) setIsThinking(true)
     })
     return unsub
-  }, [project])
+  }, [selectedSession])
 
-  // Claude Code uses raw mode for permission — single char, no Enter
+  // Permission events — filtered by processKey
+  useEffect(() => {
+    const unsub1 = window.electronAPI.onPermissionPrompt((payload) => {
+      if (payload.processKey !== processKey) return
+      setPermissionPrompt(payload.prompt)
+      setPermissionCountdown(Math.round(payload.timeout / 1000))
+      setPermissionFailed(false)
+      setManualInput('')
+    })
+    const unsub2 = window.electronAPI.onPermissionClear((payload) => {
+      if (payload.processKey !== processKey) return
+      setPermissionPrompt(null)
+      setPermissionCountdown(0)
+      setPermissionFailed(false)
+      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null }
+    })
+    const unsub3 = window.electronAPI.onPermissionFailed((payload) => {
+      if (payload.processKey !== processKey) return
+      setPermissionFailed(true)
+    })
+    return () => { unsub1(); unsub2(); unsub3() }
+  }, [processKey])
+
+  // Countdown
+  useEffect(() => {
+    if (permissionPrompt && permissionCountdown > 0) {
+      countdownRef.current = setInterval(() => {
+        setPermissionCountdown((prev) => {
+          if (prev <= 1) { if (countdownRef.current) clearInterval(countdownRef.current); return 0 }
+          return prev - 1
+        })
+      }, 1000)
+      return () => { if (countdownRef.current) clearInterval(countdownRef.current) }
+    }
+  }, [permissionPrompt])
+
   const handlePermissionResponse = (response: string) => {
-    console.log('[ClaudeDesk] Permission response:', response, 'project:', project)
-    window.electronAPI.ptyWrite(project, response)
+    if (!processKey) return
+    window.electronAPI.respondPermission(processKey, response)
     setPermissionPrompt(null)
-    ptyBufferRef.current = ''
+    setPermissionCountdown(0)
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null }
   }
 
-  // Clear permission when user sends a message
-  useEffect(() => {
-    if (inputValue) setPermissionPrompt(null)
-  }, [inputValue])
+  const handleManualSend = () => {
+    const text = manualInput.trim()
+    if (!text || !processKey) return
+    window.electronAPI.ptyWrite(processKey, text + '\r')
+    setManualInput('')
+    setPermissionPrompt(null)
+    setPermissionCountdown(0)
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null }
+  }
+
+  // Connect button
+  const handleConnect = async () => {
+    setConnectError(null)
+    let pk: string | null = null
+    if (isPending) {
+      pk = await claudeState.connectNew(project)
+    } else if (selectedSession) {
+      pk = await claudeState.connect(project, selectedSession)
+    }
+    if (!pk) {
+      setConnectError('Failed to connect. Check if max sessions (3) reached.')
+    }
+  }
+
+  // Disconnect button
+  const handleDisconnect = async () => {
+    if (processKey) await claudeState.disconnect(processKey)
+  }
+
+  // Send message
+  const handleSend = () => {
+    const text = inputValue.trim()
+    if (!text || !processKey) return
+    window.electronAPI.ptyWrite(processKey, text + '\r')
+    setInputValue('')
+    setIsThinking(true)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+  }
+
+  useEffect(() => { if (inputValue) { setPermissionPrompt(null); setPermissionCountdown(0) } }, [inputValue])
 
   if (!selectedSession) {
     return (
@@ -173,80 +257,108 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, h
     )
   }
 
-  // Filter messages: skip user messages that only contain tool_result (no visible text)
-  const allMessages = (sessionDetails?.lines || []).filter(
-    (line) => line.type === 'user' || line.type === 'assistant'
-  )
+  // Messages
+  const allMessages = (sessionDetails?.lines || []).filter(l => l.type === 'user' || l.type === 'assistant')
   const messages = allMessages.filter((msg) => {
     if (msg.type === 'user') {
       const content = msg.message?.content
       if (typeof content === 'string') return content.trim().length > 0
-      if (Array.isArray(content)) {
-        // Check if there's any text content beyond tool_result
-        const hasText = content.some((b: any) => b.type === 'text' && b.text?.trim())
-        return hasText
-      }
+      if (Array.isArray(content)) return content.some((b: any) => b.type === 'text' && b.text?.trim())
       return false
     }
     return true
   })
 
-  const handleSend = () => {
-    const text = inputValue.trim()
-    if (!text) return
-    console.log('[ClaudeDesk] Sending:', text, 'to project:', project)
-    window.electronAPI.ptyWrite(project, text + '\r')
-    setInputValue('')
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
-
   return (
     <div className="tab-pane history-pane">
       <div className="history-messages">
-        {messages.length === 0 ? (
+        {isPending && !isConnected ? (
           <div className="empty-state" style={{ padding: 40 }}>
-            <p style={{ color: 'var(--text-muted)' }}>No messages yet</p>
+            <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>New session — not connected yet</p>
+            <button className="btn btn-connect" onClick={handleConnect}>Connect & Start</button>
+            {connectError && <p style={{ color: 'var(--danger)', marginTop: 8, fontSize: 12 }}>{connectError}</p>}
+          </div>
+        ) : messages.length === 0 && !isConnected ? (
+          <div className="empty-state" style={{ padding: 40 }}>
+            <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>No messages yet. Connect to start.</p>
+            <button className="btn btn-connect" onClick={handleConnect}>Connect</button>
+            {connectError && <p style={{ color: 'var(--danger)', marginTop: 8, fontSize: 12 }}>{connectError}</p>}
           </div>
         ) : (
-          messages.map((msg, i) => (
-            <MessageItem key={msg.uuid || i} line={msg} project={project} />
-          ))
+          <>
+            {messages.map((msg, i) => (
+              <MessageItem key={msg.uuid || i} line={msg} project={project} />
+            ))}
+
+            {isThinking && (
+              <div className="thinking-indicator">
+                <div className="thinking-dots">
+                  <span className="thinking-dot" /><span className="thinking-dot" /><span className="thinking-dot" />
+                </div>
+                <span className="thinking-label">Claude is thinking...</span>
+              </div>
+            )}
+          </>
         )}
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Connection control bar */}
+      {!isConnected && !isPending && selectedSession && !selectedSession.startsWith('__pending_') && (
+        <div className="connect-bar">
+          <span className="connect-bar-text">Session not connected</span>
+          <button className="btn btn-connect" onClick={handleConnect}>
+            Connect ({claudeState.activeCount}/{claudeState.maxConnections})
+          </button>
+          {connectError && <span className="connect-error">{connectError}</span>}
+        </div>
+      )}
+      {isConnected && processKey && (
+        <div className="connect-bar connect-bar-active">
+          <span className="connect-bar-text">Connected</span>
+          <button className="btn btn-disconnect" onClick={handleDisconnect}>Disconnect</button>
+        </div>
+      )}
+
       {/* Permission prompt bar */}
-      {permissionPrompt && (
-        <div className="permission-bar">
-          <span className="permission-text">{permissionPrompt}</span>
-          <div className="permission-actions">
-            <button className="btn btn-allow" onClick={() => handlePermissionResponse('y')}>Allow (y)</button>
-            <button className="btn btn-allow" onClick={() => handlePermissionResponse('a')}>Always (a)</button>
-            <button className="btn btn-deny" onClick={() => handlePermissionResponse('n')}>Deny (n)</button>
+      {permissionPrompt && processKey && (
+        <div className={`permission-bar ${permissionFailed ? 'permission-bar-failed' : ''}`}>
+          <div className="permission-bar-top">
+            <span className="permission-text">{permissionPrompt}</span>
+            {permissionFailed ? (
+              <span className="permission-failed-badge">Auto-response failed</span>
+            ) : (
+              <span className="permission-countdown">{permissionCountdown}s</span>
+            )}
           </div>
+          <div className="permission-bar-actions">
+            {!permissionFailed && (
+              <div className="permission-actions">
+                <button className="btn btn-allow" onClick={() => handlePermissionResponse('y')}>Allow (y)</button>
+                <button className="btn btn-allow" onClick={() => handlePermissionResponse('a')}>Always (a)</button>
+                <button className="btn btn-deny" onClick={() => handlePermissionResponse('n')}>Deny (n)</button>
+              </div>
+            )}
+            <div className="permission-manual">
+              <input type="text" className="permission-manual-input"
+                placeholder={permissionFailed ? "Type y/n and Enter..." : "Manual input..."}
+                value={manualInput} onChange={(e) => setManualInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleManualSend() }}
+                autoFocus={permissionFailed} />
+              <button className="btn btn-manual" onClick={handleManualSend}>Send</button>
+            </div>
+          </div>
+          {permissionFailed && <div className="permission-hint">Auto-response failed. Type y/n above or switch to Terminal tab.</div>}
         </div>
       )}
 
       {/* Input bar */}
       <div className="input-bar">
-        <input
-          type="text"
-          className="chat-input"
-          placeholder={hasTerminal ? "Type a message and press Enter..." : "Waiting for session to connect..."}
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={!hasTerminal}
-        />
-        <button className="btn" onClick={handleSend} disabled={!inputValue.trim() || !hasTerminal}>
-          Send
-        </button>
+        <input type="text" className="chat-input"
+          placeholder={isConnected ? "Type a message and press Enter..." : "Connect to start typing..."}
+          value={inputValue} onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown} disabled={!isConnected} />
+        <button className="btn" onClick={handleSend} disabled={!inputValue.trim() || !isConnected}>Send</button>
       </div>
     </div>
   )
@@ -254,19 +366,29 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, h
 
 // ===== Terminal Tab =====
 
-function TerminalTab({ project, realPath, hasTerminal, onNewSession }: {
+function TerminalTab({ project, realPath, isConnected, processKey, isPending, selectedSession, claudeState }: {
   project: string
   realPath: string
-  hasTerminal: boolean
-  onNewSession: () => void
+  isConnected: boolean
+  processKey: string | null
+  isPending: boolean
+  selectedSession: string | null
+  claudeState: ClaudeState
 }) {
-  if (!hasTerminal) {
+  if (!isConnected || !processKey) {
     return (
       <div className="tab-pane">
         <div className="empty-state">
           <div>
-            <p style={{ marginBottom: 16 }}>No active terminal session</p>
-            <button className="btn" onClick={onNewSession}>Start New Session</button>
+            <p style={{ marginBottom: 16 }}>
+              {isPending ? 'New session — not connected yet' : 'Session not connected'}
+            </p>
+            <button className="btn btn-connect" onClick={async () => {
+              if (isPending) await claudeState.connectNew(project)
+              else if (selectedSession) await claudeState.connect(project, selectedSession)
+            }}>
+              Connect
+            </button>
           </div>
         </div>
       </div>
@@ -275,14 +397,14 @@ function TerminalTab({ project, realPath, hasTerminal, onNewSession }: {
 
   return (
     <div className="tab-pane">
-      <TerminalPane project={project} realPath={realPath} />
+      <TerminalPane processKey={processKey} project={project} />
     </div>
   )
 }
 
 // ===== xterm.js Terminal Pane =====
 
-function TerminalPane({ project, realPath }: { project: string; realPath: string }) {
+function TerminalPane({ processKey, project }: { processKey: string; project: string }) {
   const terminalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -297,39 +419,24 @@ function TerminalPane({ project, realPath }: { project: string; realPath: string
       await import('@xterm/xterm/css/xterm.css')
 
       term = new Terminal({
-        theme: {
-          background: '#11111b',
-          foreground: '#cdd6f4',
-          cursor: '#f5e0dc',
-          selectionBackground: '#45475a'
-        },
-        fontSize: 14,
-        fontFamily: 'Consolas, Monaco, monospace',
-        cursorBlink: true
+        theme: { background: '#11111b', foreground: '#cdd6f4', cursor: '#f5e0dc', selectionBackground: '#45475a' },
+        fontSize: 14, fontFamily: 'Consolas, Monaco, monospace', cursorBlink: true
       })
-
       fitAddon = new FitAddon()
       term.loadAddon(fitAddon)
 
-      if (terminalRef.current) {
-        term.open(terminalRef.current)
-        fitAddon.fit()
-      }
+      if (terminalRef.current) { term.open(terminalRef.current); fitAddon.fit() }
 
       cleanupData = window.electronAPI.onPtyData((payload) => {
-        if (payload.projectSanitizedName === project) {
-          term?.write(payload.data)
-        }
+        if (payload.processKey === processKey) term?.write(payload.data)
       })
 
       cleanupExited = window.electronAPI.onPtyExited((payload) => {
-        if (payload.projectSanitizedName === project) {
-          term?.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n')
-        }
+        if (payload.processKey === processKey) term?.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n')
       })
 
       term.onData((data: string) => {
-        window.electronAPI.ptyWrite(project, data)
+        window.electronAPI.ptyWrite(processKey, data)
       })
 
       const observer = new ResizeObserver(() => {
@@ -337,22 +444,15 @@ function TerminalPane({ project, realPath }: { project: string; realPath: string
           try { fitAddon.fit() } catch {}
           const cols = term?.cols || 80
           const rows = term?.rows || 24
-          window.electronAPI.ptyResize(project, cols, rows)
+          window.electronAPI.ptyResize(processKey, cols, rows)
         }
       })
-      if (terminalRef.current) {
-        observer.observe(terminalRef.current)
-      }
+      if (terminalRef.current) observer.observe(terminalRef.current)
     }
 
     init()
-
-    return () => {
-      cleanupData?.()
-      cleanupExited?.()
-      term?.dispose()
-    }
-  }, [project])
+    return () => { cleanupData?.(); cleanupExited?.(); term?.dispose() }
+  }, [processKey])
 
   return (
     <div className="terminal-pane">
@@ -367,38 +467,21 @@ function extractToolPairs(content: any[]): { toolUse: any; toolResult?: any }[] 
   const toolUseBlocks = content.filter((b: any) => b.type === 'tool_use')
   const toolResultBlocks = content.filter((b: any) => b.type === 'tool_result')
   const resultMap = new Map<string, any>()
-  for (const r of toolResultBlocks) {
-    resultMap.set(r.tool_use_id, r)
-  }
-  return toolUseBlocks.map((tu: any) => ({
-    toolUse: tu,
-    toolResult: resultMap.get(tu.id)
-  }))
+  for (const r of toolResultBlocks) resultMap.set(r.tool_use_id, r)
+  return toolUseBlocks.map((tu: any) => ({ toolUse: tu, toolResult: resultMap.get(tu.id) }))
 }
 
 function getToolSummary(name: string, input: Record<string, unknown>): string {
   switch (name) {
-    case 'Bash':
-      return `$ ${input.command || ''}`
-    case 'Read':
-      return `${input.file_path || ''}${input.offset ? `:${input.offset}-${input.limit ? Number(input.offset) + Number(input.limit) : ''}` : ''}`
-    case 'Write':
-      return `${input.file_path || ''}`
-    case 'Edit':
-      return `${input.file_path || ''}`
-    case 'Glob':
-      return `${input.pattern || ''}`
-    case 'Grep':
-      return `"${input.pattern || ''}" in ${input.glob || 'all files'}`
-    case 'Agent':
-      return `${input.description || ''}`
-    case 'TaskCreate':
-    case 'TaskUpdate':
-    case 'TaskGet':
-    case 'TaskList':
-      return `${input.subject || input.taskId || ''}`
-    default:
-      return ''
+    case 'Bash': return `$ ${input.command || ''}`
+    case 'Read': return `${input.file_path || ''}${input.offset ? `:${input.offset}-${input.limit ? Number(input.offset) + Number(input.limit) : ''}` : ''}`
+    case 'Write': return `${input.file_path || ''}`
+    case 'Edit': return `${input.file_path || ''}`
+    case 'Glob': return `${input.pattern || ''}`
+    case 'Grep': return `"${input.pattern || ''}" in ${input.glob || 'all files'}`
+    case 'Agent': return `${input.description || ''}`
+    case 'TaskCreate': case 'TaskUpdate': case 'TaskGet': case 'TaskList': return `${input.subject || input.taskId || ''}`
+    default: return ''
   }
 }
 
@@ -406,51 +489,27 @@ function getToolResultText(result: any): string {
   if (!result) return ''
   const content = result.content
   if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
-      .join('\n')
-  }
+  if (Array.isArray(content)) return content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
   return ''
 }
 
 function getToolIcon(name: string): string {
   switch (name) {
-    case 'Bash': return '⌨'
-    case 'Read': return '📄'
-    case 'Write': return '✏'
-    case 'Edit': return '✎'
-    case 'Glob': return '🔍'
-    case 'Grep': return '🔍'
-    case 'Agent': return '⚙'
-    default: return '▸'
+    case 'Bash': return '⌨'; case 'Read': return '📄'; case 'Write': return '✏'; case 'Edit': return '✎'
+    case 'Glob': return '🔍'; case 'Grep': return '🔍'; case 'Agent': return '⚙'; default: return '▸'
   }
 }
 
 function MessageItem({ line, project }: { line: JsonlLine; project: string }) {
   const role = line.message?.role || line.type
   const content = line.message?.content
-
   let textContent: string = ''
-  if (typeof content === 'string') {
-    textContent = content
-  } else if (Array.isArray(content)) {
-    textContent = content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
-      .join('\n')
-  }
+  if (typeof content === 'string') textContent = content
+  else if (Array.isArray(content)) textContent = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
 
   const toolPairs = Array.isArray(content) ? extractToolPairs(content) : []
-  const thinkingBlocks = Array.isArray(content)
-    ? content.filter((b: any) => b.type === 'thinking')
-    : []
-
-  // Skip if nothing to render
-  if (!textContent.trim() && toolPairs.length === 0 && thinkingBlocks.length === 0) {
-    return null
-  }
+  const thinkingBlocks = Array.isArray(content) ? content.filter((b: any) => b.type === 'thinking') : []
+  if (!textContent.trim() && toolPairs.length === 0 && thinkingBlocks.length === 0) return null
 
   return (
     <div className={`message message-${role}`}>
@@ -458,25 +517,15 @@ function MessageItem({ line, project }: { line: JsonlLine; project: string }) {
         {role === 'user' ? 'You' : 'Claude'}
       </div>
       <div className="message-content">
-        {textContent.trim() && (
-          <pre className="message-text">{textContent}</pre>
-        )}
-
+        {textContent.trim() && <pre className="message-text">{textContent}</pre>}
         {thinkingBlocks.map((block: any, i: number) => (
           <details key={`think-${i}`} className="thinking-block">
             <summary className="thinking-header">Thinking...</summary>
             <div className="thinking-content">{block.thinking}</div>
           </details>
         ))}
-
         {toolPairs.map((pair, i) => (
-          <ToolCall
-            key={`tool-${i}`}
-            name={pair.toolUse.name}
-            input={pair.toolUse.input}
-            result={pair.toolResult}
-            project={project}
-          />
+          <ToolCall key={`tool-${i}`} name={pair.toolUse.name} input={pair.toolUse.input} result={pair.toolResult} project={project} />
         ))}
       </div>
     </div>
@@ -484,10 +533,7 @@ function MessageItem({ line, project }: { line: JsonlLine; project: string }) {
 }
 
 function ToolCall({ name, input, result, project }: {
-  name: string
-  input: Record<string, unknown>
-  result?: any
-  project: string
+  name: string; input: Record<string, unknown>; result?: any; project: string
 }) {
   const [expanded, setExpanded] = useState(false)
   const summary = getToolSummary(name, input)
@@ -504,12 +550,9 @@ function ToolCall({ name, input, result, project }: {
         <span className="tool-summary">{summary}</span>
         <span className="tool-expand">{expanded ? '▾' : '▸'}</span>
       </div>
-
       {expanded && (
         <div className="tool-call-detail">
-          {name === 'Bash' && input.command && (
-            <pre className="tool-command">{input.command as string}</pre>
-          )}
+          {name === 'Bash' && input.command && <pre className="tool-command">{input.command as string}</pre>}
           {name === 'Edit' && input.old_string && (
             <div className="tool-edit">
               <div className="tool-edit-label">Replace:</div>
@@ -518,12 +561,9 @@ function ToolCall({ name, input, result, project }: {
               <pre className="tool-code">{(input.new_string as string).slice(0, 500)}</pre>
             </div>
           )}
-          {name === 'Write' && input.content && (
-            <pre className="tool-code">{(input.content as string).slice(0, 500)}</pre>
-          )}
+          {name === 'Write' && input.content && <pre className="tool-code">{(input.content as string).slice(0, 500)}</pre>}
         </div>
       )}
-
       {hasResult && (
         <div className={`tool-result ${expanded ? '' : 'tool-result-collapsed'}`}>
           <pre>{resultText.slice(0, expanded ? Infinity : 200)}</pre>

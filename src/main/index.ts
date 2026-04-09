@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu, Tray, shell, nativeImage } from 'electron'
 import path from 'path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { SessionWatcher } from './session-watcher'
@@ -9,13 +9,89 @@ import { getProjectsDir } from './path-utils'
 let mainWindow: BrowserWindow | null = null
 let sessionWatcher: SessionWatcher | null = null
 let claudeManager: ClaudeManager | null = null
+let tray: Tray | null = null
+
+const REPO_URL = 'https://github.com/HenryMu/claude-code-desk'
+
+const trayI18n: Record<string, { toggle: string; about: string; quit: string }> = {
+  en: { toggle: 'Show / Hide', about: 'About', quit: 'Quit' },
+  zh: { toggle: '显示 / 隐藏', about: '关于', quit: '退出' },
+  'zh-TW': { toggle: '顯示 / 隱藏', about: '關於', quit: '結束' },
+  ja: { toggle: '表示 / 非表示', about: 'バージョン情報', quit: '終了' },
+  ko: { toggle: '보이기 / 숨기기', about: '정보', quit: '종료' },
+  hi: { toggle: 'दिखाएं / छिपाएं', about: 'परिचय', quit: 'बंद करें' },
+  pt: { toggle: 'Mostrar / Ocultar', about: 'Sobre', quit: 'Sair' }
+}
+
+function getSysLang(): string {
+  const lang = app.getLocale()
+  if (lang.startsWith('zh-TW') || lang.startsWith('zh-Hant')) return 'zh-TW'
+  if (lang.startsWith('zh')) return 'zh'
+  if (lang.startsWith('ja')) return 'ja'
+  if (lang.startsWith('ko')) return 'ko'
+  if (lang.startsWith('hi')) return 'hi'
+  if (lang.startsWith('pt')) return 'pt'
+  return 'en'
+}
+
+function buildTrayMenu(): Menu {
+  const t = trayI18n[getSysLang()] || trayI18n.en
+  return Menu.buildFromTemplate([
+    {
+      label: t.toggle,
+      click: () => {
+        if (mainWindow?.isVisible()) {
+          mainWindow.hide()
+        } else {
+          mainWindow?.show()
+          mainWindow?.focus()
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: t.about,
+      click: () => {
+        shell.openExternal(REPO_URL)
+      }
+    },
+    { type: 'separator' },
+    {
+      label: t.quit,
+      click: () => {
+        cleanup()
+        app.quit()
+      }
+    }
+  ])
+}
+
+function createTray(): void {
+  const iconPath = path.join(__dirname, '../../logo.png')
+  const icon = nativeImage.createFromPath(iconPath)
+  tray = new Tray(icon.resize({ width: 16, height: 16 }))
+  tray.setToolTip('ClaudeDesk')
+  tray.setContextMenu(buildTrayMenu())
+
+  // Double-click tray icon to toggle window
+  tray.on('double-click', () => {
+    if (mainWindow?.isVisible()) {
+      mainWindow.hide()
+    } else {
+      mainWindow?.show()
+      mainWindow?.focus()
+    }
+  })
+}
 
 function createWindow(): void {
+  const iconPath = path.join(__dirname, '../../logo.png')
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 800,
     minHeight: 600,
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -28,6 +104,17 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  // Hide default menu bar
+  Menu.setApplicationMenu(null)
+
+  // Close button hides to tray instead of quitting
+  mainWindow.on('close', (e) => {
+    if (tray) {
+      e.preventDefault()
+      mainWindow?.hide()
+    }
   })
 
   mainWindow.on('closed', () => {
@@ -63,6 +150,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  createTray()
   createWindow()
 
   app.on('activate', () => {
@@ -73,7 +161,6 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  cleanup()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -85,7 +172,7 @@ app.on('before-quit', () => {
 
 app.on('second-instance', () => {
   if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
     mainWindow.focus()
   }
 })
@@ -95,4 +182,6 @@ function cleanup(): void {
   sessionWatcher?.stop()
   claudeManager = null
   sessionWatcher = null
+  tray?.destroy()
+  tray = null
 }

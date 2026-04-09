@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionMeta, ActiveProcess } from '../../../shared/types'
 import type { ConnectionInfo } from '../hooks/useClaudeManager'
@@ -8,6 +8,13 @@ interface ProjectData {
   sanitizedName: string
   realPath: string
   sessions: SessionMeta[]
+}
+
+interface ContextMenuState {
+  x: number
+  y: number
+  project: string
+  sessionId: string
 }
 
 interface SidebarProps {
@@ -35,13 +42,61 @@ export default function Sidebar({
   onNewSession,
   onOpenSettings
 }: SidebarProps) {
-  // Build a set of connected sessionIds for fast lookup
+  const { t } = useTranslation()
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
+  const ctxRef = useRef<HTMLDivElement>(null)
+
   const connectedSessionIds = new Set<string>()
   for (const conn of connections.values()) {
     if (conn.sessionId) connectedSessionIds.add(conn.sessionId)
   }
-  // Pending sessions that haven't been replaced by real ones yet
-  const connectedProcessKeys = new Set(connections.keys())
+
+  // Close context menu on click outside
+  useEffect(() => {
+    const handler = () => setCtxMenu(null)
+    if (ctxMenu) {
+      document.addEventListener('click', handler)
+      return () => document.removeEventListener('click', handler)
+    }
+  }, [ctxMenu])
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, project: string, sessionId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setCtxMenu({ x: e.clientX, y: e.clientY, project, sessionId })
+  }, [])
+
+  const handleDelete = useCallback(async () => {
+    if (!ctxMenu) return
+    const { project, sessionId } = ctxMenu
+    const msg = t('sidebar.confirmDelete')
+    if (window.confirm(msg)) {
+      try {
+        await window.electronAPI.deleteSession(project, sessionId)
+      } catch (err) {
+        console.error('Failed to delete session:', err)
+      }
+    }
+    setCtxMenu(null)
+  }, [ctxMenu, t])
+
+  const handleRename = useCallback(async () => {
+    if (!ctxMenu) return
+    const { project, sessionId } = ctxMenu
+    // Find current title or firstUserMessage
+    const proj = projects.find(p => p.sanitizedName === project)
+    const session = proj?.sessions.find(s => s.sessionId === sessionId)
+    const currentTitle = session?.title || session?.firstUserMessage || ''
+    const newTitle = window.prompt(t('sidebar.renamePrompt'), currentTitle)
+    if (newTitle !== null && newTitle.trim()) {
+      try {
+        await window.electronAPI.renameSession(project, sessionId, newTitle.trim())
+      } catch (err) {
+        console.error('Failed to rename session:', err)
+      }
+    }
+    setCtxMenu(null)
+  }, [ctxMenu, projects, t])
 
   return (
     <div className="sidebar">
@@ -55,11 +110,9 @@ export default function Sidebar({
       </div>
       <div className="sidebar-content">
         {projects.map((project) => {
-          // Collect pending sessions for this project
           const projectPending = Array.from(pendingSessions.values())
             .filter(s => s.projectSanitizedName === project.sanitizedName)
 
-          // Combine real sessions with pending ones
           const allSessions = [...projectPending, ...project.sessions]
             .sort((a, b) => (b.lastTimestamp || '').localeCompare(a.lastTimestamp || ''))
 
@@ -81,7 +134,7 @@ export default function Sidebar({
                 <div className="session-list">
                   <div style={{ padding: '4px 16px 4px 28px' }}>
                     <button className="btn-new" onClick={() => onNewSession(project.sanitizedName)}>
-                      + New Session
+                      + {t('sidebar.newSession')}
                     </button>
                   </div>
                   {allSessions.map((session) => {
@@ -93,17 +146,18 @@ export default function Sidebar({
                         key={session.sessionId}
                         className={`session-item ${selectedSession === session.sessionId ? 'selected' : ''}`}
                         onClick={() => onSelectSession(project.sanitizedName, session.sessionId)}
+                        onContextMenu={(e) => !isPending && handleContextMenu(e, project.sanitizedName, session.sessionId)}
                       >
                         <span className={`status-dot ${isConnected ? 'dot-connected' : isPending ? 'dot-pending' : 'dot-offline'}`} />
                         <div className="session-info">
                           <div className="session-preview">
-                            {isPending ? 'New Session (not connected)' : session.firstUserMessage || '(empty session)'}
+                            {isPending ? t('sidebar.pendingSession') : (session.title || session.firstUserMessage || t('sidebar.emptySession'))}
                           </div>
                           <div className="session-meta">
                             {!isPending && <span>{session.lastTimestamp ? formatTime(session.lastTimestamp) : ''}</span>}
-                            {!isPending && <span>{session.userMessageCount + session.assistantMessageCount} msgs</span>}
+                            {!isPending && <span>{session.userMessageCount + session.assistantMessageCount} {t('sidebar.msgs')}</span>}
                             {session.model && <span>{session.model}</span>}
-                            {isPending && <span className="pending-label">Pending</span>}
+                            {isPending && <span className="pending-label">{t('sidebar.pendingLabel')}</span>}
                           </div>
                         </div>
                       </div>
@@ -115,6 +169,23 @@ export default function Sidebar({
           )
         })}
       </div>
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <div
+          ref={ctxRef}
+          className="context-menu"
+          style={{ top: ctxMenu.y, left: ctxMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button className="context-menu-item" onClick={handleRename}>
+            {t('sidebar.rename')}
+          </button>
+          <button className="context-menu-item danger" onClick={handleDelete}>
+            {t('sidebar.delete')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

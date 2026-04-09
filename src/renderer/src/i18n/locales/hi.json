@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "ClaudeDesk"
+    "title": "Claude Code Desktop"
   },
   "sidebar": {
     "newSession": "+ नया सेशन",
@@ -10,7 +10,12 @@
     "justNow": "अभी",
     "minutesAgo": "{{count}} मिनट पहले",
     "hoursAgo": "{{count}} घंटे पहले",
-    "msgs": "{{count}} संदेश"
+    "msgs": "{{count}} संदेश",
+    "rename": "नाम बदलें",
+    "delete": "हटाएं",
+    "confirmDelete": "इस सेशन को हटाएं? यह पूर्ववत नहीं किया जा सकता।",
+    "renamePrompt": "नया शीर्षक दर्ज करें:",
+    "pendingSession": "नया सेशन (कनेक्ट नहीं)"
   },
   "tabs": {
     "conversation": "वार्तालाप",

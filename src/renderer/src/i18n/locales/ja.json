@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "ClaudeDesk"
+    "title": "Claude Code Desktop"
   },
   "sidebar": {
     "newSession": "+ 新しいセッション",
@@ -10,7 +10,12 @@
     "justNow": "たった今",
     "minutesAgo": "{{count}}分前",
     "hoursAgo": "{{count}}時間前",
-    "msgs": "{{count}}件のメッセージ"
+    "msgs": "{{count}}件のメッセージ",
+    "rename": "名前の変更",
+    "delete": "削除",
+    "confirmDelete": "このセッションを削除しますか？元に戻せません。",
+    "renamePrompt": "新しいタイトルを入力：",
+    "pendingSession": "新規セッション（未接続）"
   },
   "tabs": {
     "conversation": "会話",

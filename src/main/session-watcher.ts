@@ -54,13 +54,13 @@ export class SessionWatcher {
       ignored: (filePath: string, stats?: fs.Stats) => {
         if (!stats) return false
         if (stats.isDirectory()) {
-          // Ignore non-project subdirectories
           const basename = path.basename(filePath)
           return basename === 'memory' || basename === 'subagents' || basename === 'plans'
         }
         if (stats.isFile()) {
-          // Only watch .jsonl files, skip agent sessions
           const basename = path.basename(filePath)
+          // Watch .jsonl (non-agent) and *.meta.json files
+          if (basename.endsWith('.meta.json')) return false
           if (!basename.endsWith('.jsonl')) return true
           if (basename.startsWith('agent-')) return true
           return false
@@ -105,6 +105,12 @@ export class SessionWatcher {
   // ===== Chokidar event handlers =====
 
   private handleFileAdd(filePath: string, stats?: fs.Stats): void {
+    // Check if this is a meta.json file
+    if (filePath.endsWith('meta.json')) {
+      this.handleMetaFileChange(filePath)
+      return
+    }
+
     const info = this.parseFilePath(filePath)
     if (!info) return
 
@@ -117,7 +123,7 @@ export class SessionWatcher {
     // Track file offset
     this.fileTrackers.set(filePath, { filePath, byteOffset: fileSize })
 
-    // Build metadata
+    // Build metadata (includes title from meta.json)
     const meta = this.buildSessionMeta(sessionId, sanitizedName, lines)
 
     // Update project index
@@ -137,6 +143,12 @@ export class SessionWatcher {
   }
 
   private handleFileChange(filePath: string, stats?: fs.Stats): void {
+    // Check if this is a meta.json file
+    if (filePath.endsWith('meta.json')) {
+      this.handleMetaFileChange(filePath)
+      return
+    }
+
     const info = this.parseFilePath(filePath)
     if (!info) return
 
@@ -214,6 +226,83 @@ export class SessionWatcher {
   }
 
   // ===== Helpers =====
+
+  private handleMetaFileChange(filePath: string): void {
+    const relative = path.relative(this.projectsDir, filePath)
+    const parts = relative.split(path.sep)
+    if (parts.length !== 2) return
+    const sanitizedName = parts[0]
+
+    try {
+      const raw = fs.readFileSync(filePath, 'utf8')
+      const meta = JSON.parse(raw)
+      const sessionId = meta.sessionId
+      const title: string | undefined = meta.title
+      if (!sessionId) return
+
+      const project = this.projectIndexes.get(sanitizedName)
+      if (!project) return
+      const session = project.sessions.get(sessionId)
+      if (!session) return
+
+      session.title = title || null
+      if (this.isReady) {
+        this.send('session-updated', {
+          projectSanitizedName: sanitizedName,
+          sessionId,
+          newLines: [],
+          updatedMeta: session
+        })
+      }
+    } catch { /* ignore malformed meta.json */ }
+  }
+
+  /** Read title from meta.json for a session */
+  private readMetaTitle(sanitizedName: string, sessionId: string): string | null {
+    const dir = path.join(this.projectsDir, sanitizedName)
+    // meta.json can be at the session level or project level
+    // We look for per-session meta: <project>/<sessionId>.meta.json
+    const metaPath = path.join(dir, `${sessionId}.meta.json`)
+    try {
+      const raw = fs.readFileSync(metaPath, 'utf8')
+      const parsed = JSON.parse(raw)
+      return parsed.title || null
+    } catch {
+      return null
+    }
+  }
+
+  /** Write title to meta.json */
+  updateSessionTitle(sanitizedName: string, sessionId: string, title: string): void {
+    const dir = path.join(this.projectsDir, sanitizedName)
+    const metaPath = path.join(dir, `${sessionId}.meta.json`)
+    const data = { sessionId, title }
+    fs.writeFileSync(metaPath, JSON.stringify(data, null, 2), 'utf8')
+
+    // Update in-memory index immediately
+    const project = this.projectIndexes.get(sanitizedName)
+    if (project) {
+      const session = project.sessions.get(sessionId)
+      if (session) session.title = title
+    }
+  }
+
+  /** Delete session: remove .jsonl, .meta.json, and clean up index */
+  deleteSession(sanitizedName: string, sessionId: string): void {
+    const dir = path.join(this.projectsDir, sanitizedName)
+    const jsonlPath = path.join(dir, `${sessionId}.jsonl`)
+    const metaPath = path.join(dir, `${sessionId}.meta.json`)
+
+    try { fs.unlinkSync(jsonlPath) } catch { /* ignore */ }
+    try { fs.unlinkSync(metaPath) } catch { /* ignore */ }
+
+    // Clean up index — chokidar unlink will also do this but do it proactively
+    this.fileTrackers.delete(jsonlPath)
+    const project = this.projectIndexes.get(sanitizedName)
+    if (project) project.sessions.delete(sessionId)
+
+    this.send('session-deleted', { projectSanitizedName: sanitizedName, sessionId })
+  }
 
   private parseFilePath(filePath: string): { sanitizedName: string; sessionId: string } | null {
     const relative = path.relative(this.projectsDir, filePath)
@@ -337,7 +426,8 @@ export class SessionWatcher {
       cwd,
       gitBranch,
       model,
-      firstUserMessage
+      firstUserMessage,
+      title: this.readMetaTitle(projectSanitizedName, sessionId)
     }
   }
 

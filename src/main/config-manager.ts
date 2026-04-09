@@ -16,7 +16,7 @@ export function getConfigPath(home: string): string {
 }
 
 export function getProfilesDir(home: string): string {
-  return path.join(home, '.my-claude-desktop', 'profiles')
+  return path.join(home, '.claude-code-desktop', 'profiles')
 }
 
 export function readConfigFile(home: string): string {

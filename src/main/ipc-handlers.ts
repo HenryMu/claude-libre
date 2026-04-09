@@ -93,4 +93,15 @@ export function registerIpcHandlers(
   ipcMain.handle('delete-profile', (_, profileId: string) => {
     deleteProfile(homeDir, profileId)
   })
+
+  // ===== Session management =====
+
+  ipcMain.handle('delete-session', async (_, projectSanitizedName: string, sessionId: string) => {
+    await claudeManager.killBySessionId(sessionId)
+    sessionWatcher.deleteSession(projectSanitizedName, sessionId)
+  })
+
+  ipcMain.handle('rename-session', (_, projectSanitizedName: string, sessionId: string, title: string) => {
+    sessionWatcher.updateSessionTitle(projectSanitizedName, sessionId, title)
+  })
 }

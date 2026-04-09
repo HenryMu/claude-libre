@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "ClaudeDesk"
+    "title": "Claude Code Desktop"
   },
   "sidebar": {
     "newSession": "+ New Session",
@@ -10,7 +10,12 @@
     "justNow": "just now",
     "minutesAgo": "{{count}}m ago",
     "hoursAgo": "{{count}}h ago",
-    "msgs": "{{count}} msgs"
+    "msgs": "{{count}} msgs",
+    "rename": "Rename",
+    "delete": "Delete",
+    "confirmDelete": "Delete this session? This cannot be undone.",
+    "renamePrompt": "Enter new title:",
+    "pendingSession": "New Session (not connected)"
   },
   "tabs": {
     "conversation": "Conversation",

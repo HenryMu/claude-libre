@@ -87,7 +87,11 @@ const electronAPI: ElectronAPI = {
   writeConfigFile: (content) => ipcRenderer.invoke('write-config-file', content),
   listProfiles: () => ipcRenderer.invoke('list-profiles'),
   saveProfile: (profile) => ipcRenderer.invoke('save-profile', profile),
-  deleteProfile: (profileId) => ipcRenderer.invoke('delete-profile', profileId)
+  deleteProfile: (profileId) => ipcRenderer.invoke('delete-profile', profileId),
+
+  // Session management
+  deleteSession: (projectSanitizedName, sessionId) => ipcRenderer.invoke('delete-session', projectSanitizedName, sessionId),
+  renameSession: (projectSanitizedName, sessionId, title) => ipcRenderer.invoke('rename-session', projectSanitizedName, sessionId, title)
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

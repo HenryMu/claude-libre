@@ -11,7 +11,7 @@ let sessionWatcher: SessionWatcher | null = null
 let claudeManager: ClaudeManager | null = null
 let tray: Tray | null = null
 
-const REPO_URL = 'https://github.com/HenryMu/claude-code-desk'
+const REPO_URL = 'https://github.com/HenryMu/claude-code-desktop'
 
 const trayI18n: Record<string, { toggle: string; about: string; quit: string }> = {
   en: { toggle: 'Show / Hide', about: 'About', quit: 'Quit' },
@@ -70,7 +70,7 @@ function createTray(): void {
   const iconPath = path.join(__dirname, '../../logo.png')
   const icon = nativeImage.createFromPath(iconPath)
   tray = new Tray(icon.resize({ width: 16, height: 16 }))
-  tray.setToolTip('ClaudeDesk')
+  tray.setToolTip('Claude Code Desktop')
   tray.setContextMenu(buildTrayMenu())
 
   // Double-click tray icon to toggle window
@@ -97,7 +97,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false
     },
-    title: 'ClaudeDesk',
+    title: 'Claude Code Desktop',
     backgroundColor: '#1e1e2e',
     show: false
   })
@@ -144,7 +144,7 @@ app.whenReady().then(() => {
     return
   }
 
-  electronApp.setAppUserModelId('com.claudedesk.app')
+  electronApp.setAppUserModelId('com.claudedesktop.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

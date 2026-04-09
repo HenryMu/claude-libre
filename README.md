@@ -1,8 +1,8 @@
-# ClaudeDesk
+# Claude Code Desktop
 
 A desktop application for managing and interacting with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions. Built with Electron + React + TypeScript.
 
-![ClaudeDesk](https://img.shields.io/badge/Electron-34-black?logo=electron) ![React](https://img.shields.io/badge/React-19-blue?logo=react) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript) ![License](https://img.shields.io/badge/License-MIT-green)
+![Claude Code Desktop](https://img.shields.io/badge/Electron-34-black?logo=electron) ![React](https://img.shields.io/badge/React-19-blue?logo=react) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Features
 
@@ -37,8 +37,8 @@ _Tab-based main content:_
 ### Install
 
 ```bash
-git clone https://github.com/HenryMu/claude-code-desk.git
-cd claude-code-desk
+git clone https://github.com/HenryMu/claude-code-desktop.git
+cd claude-code-desktop
 npm install
 ```
 
@@ -135,11 +135,11 @@ Claude Code stores projects with sanitized directory names:
 
 | Real Path | Sanitized Name |
 |-----------|---------------|
-| `E:\code\claudeDesk` | `E--code-claudeDesk` |
+| `E:\code\claudeDesktop` | `E--code-claudeDesktop` |
 | `C:\Users\alice` | `C--Users-alice` |
 | `/home/user/project` | `-home-user-project` |
 
-ClaudeDesk reverses this mapping to resolve the correct working directory for PTY processes.
+Claude Code Desktop reverses this mapping to resolve the correct working directory for PTY processes.
 
 ## License
 

@@ -27,7 +27,7 @@ i18n
     interpolation: { escapeValue: false },
     detection: {
       order: ['localStorage', 'navigator'],
-      lookupLocalStorage: 'claudedesk-lang',
+      lookupLocalStorage: 'claudecode-lang',
       caches: ['localStorage']
     }
   })

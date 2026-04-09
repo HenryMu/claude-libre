@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "ClaudeDesk"
+    "title": "Claude Code Desktop"
   },
   "sidebar": {
     "newSession": "+ 新建会话",
@@ -10,7 +10,12 @@
     "justNow": "刚刚",
     "minutesAgo": "{{count}}分钟前",
     "hoursAgo": "{{count}}小时前",
-    "msgs": "{{count}} 条消息"
+    "msgs": "{{count}} 条消息",
+    "rename": "重命名",
+    "delete": "删除",
+    "confirmDelete": "确定删除此会话？此操作不可撤销。",
+    "renamePrompt": "输入新标题：",
+    "pendingSession": "新会话（未连接）"
   },
   "tabs": {
     "conversation": "会话",

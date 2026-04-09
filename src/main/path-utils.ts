@@ -2,12 +2,12 @@ import path from 'path'
 
 /**
  * Sanitize a real filesystem path into a Claude projects directory name.
- * E:\code\claudeDesk → E--code-claudeDesk
+ * E:\code\claudeDesktop → E--code-claudeDesktop
  * /home/user/proj   → -home-user-proj
  */
 export function sanitizePath(realPath: string): string {
   if (process.platform === 'win32') {
-    // E:\code\claudeDesk → E--code-claudeDesk
+    // E:\code\claudeDesktop → E--code-claudeDesktop
     return realPath
       .replace(/:\s*/g, '-')
       .replace(/[/\\]+/g, '-')
@@ -22,12 +22,12 @@ export function sanitizePath(realPath: string): string {
 
 /**
  * Un-sanitize a Claude projects directory name back to a real path.
- * E--code-claudeDesk → E:\code\claudeDesk
+ * E--code-claudeDesktop → E:\code\claudeDesktop
  * -home-user-proj    → /home/user/proj
  */
 export function unsanitizePath(sanitizedName: string): string {
   if (process.platform === 'win32') {
-    // E--code-claudeDesk → E:\code\claudeDesk
+    // E--code-claudeDesktop → E:\code\claudeDesktop
     const match = sanitizedName.match(/^([A-Za-z])--(.*)$/)
     if (match) {
       return match[1] + ':\\' + match[2].replace(/-/g, '\\')

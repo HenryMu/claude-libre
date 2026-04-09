@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "ClaudeDesk"
+    "title": "Claude Code Desktop"
   },
   "sidebar": {
     "newSession": "+ 새 세션",
@@ -10,7 +10,12 @@
     "justNow": "방금",
     "minutesAgo": "{{count}}분 전",
     "hoursAgo": "{{count}}시간 전",
-    "msgs": "메시지 {{count}}개"
+    "msgs": "메시지 {{count}}개",
+    "rename": "이름 변경",
+    "delete": "삭제",
+    "confirmDelete": "이 세션을 삭제하시겠습니까? 되돌릴 수 없습니다.",
+    "renamePrompt": "새 제목을 입력하세요:",
+    "pendingSession": "새 세션 (연결 안 됨)"
   },
   "tabs": {
     "conversation": "대화",

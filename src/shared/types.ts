@@ -82,6 +82,7 @@ export interface SessionMeta {
   gitBranch: string | null
   model: string | null
   firstUserMessage: string | null
+  title?: string | null
 }
 
 // ===== IPC Events (main -> renderer) =====
@@ -207,4 +208,8 @@ export interface ElectronAPI {
   listProfiles: () => Promise<ProfileData[]>
   saveProfile: (profile: ProfileData) => Promise<void>
   deleteProfile: (profileId: string) => Promise<void>
+
+  // Session management
+  deleteSession: (projectSanitizedName: string, sessionId: string) => Promise<void>
+  renameSession: (projectSanitizedName: string, sessionId: string, title: string) => Promise<void>
 }

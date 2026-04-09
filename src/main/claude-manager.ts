@@ -81,16 +81,16 @@ export class ClaudeManager {
   private writeRaw(processKey: string, data: string): boolean {
     const entry = this.processes.get(processKey)
     if (!entry || entry.status !== 'running') {
-      console.error(`[ClaudeDesk:Main] writeRaw FAILED: key=${processKey}, entry=${!!entry}, status=${entry?.status}`)
+      console.error(`[ClaudeDesktop:Main] writeRaw FAILED: key=${processKey}, entry=${!!entry}, status=${entry?.status}`)
       return false
     }
     const bytes = Buffer.from(data).toString('hex')
-    console.log(`[ClaudeDesk:Main] pty.write: key=${processKey}, pid=${entry.pty.pid}, data=${JSON.stringify(data)}, bytes=0x${bytes}`)
+    console.log(`[ClaudeDesktop:Main] pty.write: key=${processKey}, pid=${entry.pty.pid}, data=${JSON.stringify(data)}, bytes=0x${bytes}`)
     try {
       entry.pty.write(data)
       return true
     } catch (err) {
-      console.error(`[ClaudeDesk:Main] pty.write EXCEPTION:`, err)
+      console.error(`[ClaudeDesktop:Main] pty.write EXCEPTION:`, err)
       return false
     }
   }
@@ -115,7 +115,7 @@ export class ClaudeManager {
         const entry = this.processes.get(processKey)
         const project = entry?.projectSanitizedName || ''
 
-        console.log(`[ClaudeDesk:Main] PERMISSION DETECTED: "${promptText}"`)
+        console.log(`[ClaudeDesktop:Main] PERMISSION DETECTED: "${promptText}"`)
 
         const timer = setTimeout(() => {
           if (this.pendingPermissions.has(processKey)) {
@@ -156,7 +156,7 @@ export class ClaudeManager {
     }
     const strategy = RESPONSE_STRATEGIES[strategyIndex]
     const writes = strategy.build(response)
-    console.log(`[ClaudeDesk:Main] Strategy ${strategyIndex} (${strategy.name}) for ${processKey}`)
+    console.log(`[ClaudeDesktop:Main] Strategy ${strategyIndex} (${strategy.name}) for ${processKey}`)
 
     writes.forEach((data, i) => {
       if (data === null) return
@@ -279,7 +279,8 @@ export class ClaudeManager {
   }
 
   /** Kill by sessionId — for deduplication before resume */
-  private async killBySessionId(sessionId: string): Promise<void> {
+  /** Kill by sessionId — for deduplication or session deletion */
+  async killBySessionId(sessionId: string): Promise<void> {
     for (const [key, entry] of this.processes) {
       if (entry.sessionId === sessionId) {
         await this.killProcess(key)

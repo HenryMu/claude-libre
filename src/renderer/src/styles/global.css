@@ -45,6 +45,13 @@
   --draft-label: #bac2de;
   --draft-active-text: #dce0ff;
   --draft-placeholder: rgba(166, 173, 200, 0.72);
+  --sidebar-bg: var(--bg-secondary);
+  --sidebar-header-bg: transparent;
+  --sidebar-surface: var(--bg-tertiary);
+  --sidebar-hover: var(--bg-hover);
+  --sidebar-selected: var(--bg-hover);
+  --sidebar-count-bg: var(--bg-tertiary);
+  --sidebar-shadow: none;
 }
 
 :root[data-theme='light'] {
@@ -88,6 +95,15 @@
   --draft-label: #7b6a58;
   --draft-active-text: #4c3c91;
   --draft-placeholder: rgba(95, 83, 70, 0.64);
+  --sidebar-bg:
+    radial-gradient(circle at top left, rgba(129, 101, 214, 0.12), transparent 28%),
+    linear-gradient(180deg, #fffaf4 0%, #f2ebdf 100%);
+  --sidebar-header-bg: rgba(255, 250, 240, 0.72);
+  --sidebar-surface: rgba(255, 249, 240, 0.72);
+  --sidebar-hover: rgba(129, 101, 214, 0.1);
+  --sidebar-selected: rgba(129, 101, 214, 0.16);
+  --sidebar-count-bg: rgba(129, 101, 214, 0.1);
+  --sidebar-shadow: inset -1px 0 0 rgba(214, 196, 235, 0.75);
 }
 
 html, body, #root {
@@ -115,8 +131,10 @@ body {
 .sidebar {
   width: 300px;
   min-width: 300px;
-  background: var(--bg-secondary);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
+  box-shadow: var(--sidebar-shadow);
+  backdrop-filter: blur(18px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -125,6 +143,7 @@ body {
 .sidebar-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+  background: var(--sidebar-header-bg);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -171,16 +190,16 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.15s, color 0.15s;
   user-select: none;
 }
 
 .project-header:hover {
-  background: var(--bg-hover);
+  background: var(--sidebar-hover);
 }
 
 .project-header.selected {
-  background: var(--bg-hover);
+  background: var(--sidebar-selected);
 }
 
 .project-name {
@@ -205,31 +224,31 @@ body {
 .project-count {
   font-size: 11px;
   color: var(--text-muted);
-  background: var(--bg-tertiary);
+  background: var(--sidebar-count-bg);
   padding: 1px 6px;
   border-radius: 8px;
 }
 
 /* Session */
 .session-list {
-  background: var(--bg-tertiary);
+  background: var(--sidebar-surface);
 }
 
 .session-item {
   padding: 8px 16px 8px 28px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .session-item:hover {
-  background: var(--bg-hover);
+  background: var(--sidebar-hover);
 }
 
 .session-item.selected {
-  background: var(--bg-hover);
+  background: var(--sidebar-selected);
   border-left: 2px solid var(--accent);
 }
 
@@ -398,7 +417,7 @@ body {
 
 .lang-switch,
 .theme-switch {
-  background: var(--bg-tertiary);
+  background: var(--sidebar-surface);
   border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 12px;
@@ -1506,7 +1525,7 @@ body {
 
 /* Settings button */
 .settings-btn {
-  background: var(--bg-tertiary);
+  background: var(--sidebar-surface);
   border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 14px;

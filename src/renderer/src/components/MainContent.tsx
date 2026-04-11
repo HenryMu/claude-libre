@@ -156,10 +156,14 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const [permissionFailed, setPermissionFailed] = useState(false)
   const [manualInput, setManualInput] = useState('')
   const [isThinking, setIsThinking] = useState(false)
+  const [systemSuccessMsg, setSystemSuccessMsg] = useState<string | null>(null)
+  const [currentModel, setCurrentModel] = useState<string>('sonnet')
+  const [currentEffort, setCurrentEffort] = useState<string>('medium')
   const [connectError, setConnectError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevAssistantCount = useRef(0)
+  const successMsgRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Auto-scroll
   useEffect(() => {
@@ -169,9 +173,13 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   // Reset on session change
   useEffect(() => {
     setIsThinking(false)
+    setSystemSuccessMsg(null)
     setPermissionPrompt(null)
     setConnectError(null)
+    setCurrentModel('sonnet')
+    setCurrentEffort('medium')
     prevAssistantCount.current = 0
+    if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
   }, [selectedSession])
 
   // Detect new assistant message → stop thinking
@@ -229,6 +237,55 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
     }
   }, [permissionPrompt])
 
+  // Detect system success messages from PTY (model, effort, cost, etc.)
+  useEffect(() => {
+    const cleanup = window.electronAPI.onPtyData((payload) => {
+      if (payload.processKey !== processKey) return
+
+      const data = payload.data
+      // Match patterns for system success messages
+      const patterns = [
+        /Set model to/i,
+        /Set effort level to/i,
+        /Current session cost/i,
+        /Plan-level usage/i,
+        /Context window/i,
+        /Cleared conversation/i,
+        /Compacted conversation/i,
+      ]
+
+      const buffer = data.replace(/\x1b\[[0-9;]*m/g, '') // Remove ANSI codes
+
+      // Parse model/effort from success messages
+      const modelMatch = buffer.match(/Set model to (\S+)/i)
+      if (modelMatch) {
+        const model = modelMatch[1].toLowerCase()
+        setCurrentModel(model.includes('sonnet') ? 'sonnet' : model.includes('opus') ? 'opus' : model.includes('haiku') ? 'haiku' : model)
+      }
+
+      const effortMatch = buffer.match(/Set effort level to (\S+)/i)
+      if (effortMatch) {
+        const effort = effortMatch[1].toLowerCase()
+        setCurrentEffort(effort.includes('auto') ? 'auto' : effort.includes('low') ? 'low' : effort.includes('medium') ? 'medium' : effort.includes('high') ? 'high' : effort.includes('max') ? 'max' : effort)
+      }
+
+      for (const pattern of patterns) {
+        if (pattern.test(buffer)) {
+          setIsThinking(false)
+          setSystemSuccessMsg(buffer.trim())
+          // Auto-hide after 3 seconds
+          if (successMsgRef.current) clearInterval(successMsgRef.current)
+          successMsgRef.current = setTimeout(() => {
+            setSystemSuccessMsg(null)
+            successMsgRef.current = null
+          }, 3000)
+          break
+        }
+      }
+    })
+    return cleanup
+  }, [processKey])
+
   const handlePermissionResponse = (response: string) => {
     if (!processKey) return
     window.electronAPI.respondPermission(processKey, response)
@@ -273,6 +330,8 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
     window.electronAPI.ptyWrite(processKey, text + '\r')
     setInputValue('')
     setIsThinking(true)
+    setSystemSuccessMsg(null)
+    if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -360,12 +419,17 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
               <MessageItem key={msg.uuid || i} line={msg} project={project} />
             ))}
 
-            {isThinking && (
+            {isThinking && !systemSuccessMsg && (
               <div className="thinking-indicator">
                 <div className="thinking-dots">
                   <span className="thinking-dot" /><span className="thinking-dot" /><span className="thinking-dot" />
                 </div>
                 <span className="thinking-label">{t('conversation.thinking')}</span>
+              </div>
+            )}
+            {systemSuccessMsg && (
+              <div className="thinking-indicator system-success">
+                <span className="thinking-label">✓ {systemSuccessMsg}</span>
               </div>
             )}
           </>
@@ -424,38 +488,36 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
       {/* Input bar */}
       <div className="input-bar">
-        <InputToolbar processKey={processKey} isConnected={isConnected} t={t} />
-        <div style={{ position: 'relative', flex: 1 }}>
-          <input type="text" className="chat-input"
-            placeholder={isConnected ? t('conversation.inputPlaceholder') : t('conversation.inputPlaceholderOffline')}
-            value={inputValue} onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (showCommands && filteredCommands.length > 0) {
-                if (e.key === 'ArrowDown') { e.preventDefault(); setActiveCmdIndex(i => (i + 1) % filteredCommands.length); return }
-                if (e.key === 'ArrowUp') { e.preventDefault(); setActiveCmdIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length); return }
-                if (e.key === 'Tab') { e.preventDefault(); selectCommand(filteredCommands[activeCmdIndex].cmd); return }
-              }
-              handleKeyDown(e)
-            }}
-            disabled={!isConnected} />
-          {/* Command autocomplete */}
-          {showCommands && filteredCommands.length > 0 && (
-            <div ref={cmdListRef} className="command-autocomplete">
-              {filteredCommands.map((cmd, i) => (
-                <div
-                  key={cmd.cmd}
-                  className={`command-item ${i === activeCmdIndex ? 'command-item-active' : ''}`}
-                  onMouseDown={(e) => { e.preventDefault(); selectCommand(cmd.cmd) }}
-                  onMouseEnter={() => setActiveCmdIndex(i)}
-                >
-                  <span className="command-name">{cmd.cmd}</span>
-                  <span className="command-desc">{t(`commands.${cmd.cmd}` as any, cmd.cmd)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <input type="text" className="chat-input"
+          placeholder={isConnected ? t('conversation.inputPlaceholder') : t('conversation.inputPlaceholderOffline')}
+          value={inputValue} onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (showCommands && filteredCommands.length > 0) {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setActiveCmdIndex(i => (i + 1) % filteredCommands.length); return }
+              if (e.key === 'ArrowUp') { e.preventDefault(); setActiveCmdIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length); return }
+              if (e.key === 'Tab') { e.preventDefault(); selectCommand(filteredCommands[activeCmdIndex].cmd); return }
+            }
+            handleKeyDown(e)
+          }}
+          disabled={!isConnected} />
+        {/* Command autocomplete */}
+        {showCommands && filteredCommands.length > 0 && (
+          <div ref={cmdListRef} className="command-autocomplete">
+            {filteredCommands.map((cmd, i) => (
+              <div
+                key={cmd.cmd}
+                className={`command-item ${i === activeCmdIndex ? 'command-item-active' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); selectCommand(cmd.cmd) }}
+                onMouseEnter={() => setActiveCmdIndex(i)}
+              >
+                <span className="command-name">{cmd.cmd}</span>
+                <span className="command-desc">{t(`commands.${cmd.cmd}` as any, cmd.cmd)}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <button className="btn" onClick={handleSend} disabled={!inputValue.trim() || !isConnected}>{t('conversation.send')}</button>
+        <InputToolbar processKey={processKey} isConnected={isConnected} t={t} currentModel={currentModel} currentEffort={currentEffort} />
       </div>
     </div>
   )
@@ -672,10 +734,12 @@ function ToolCall({ name, input, result, project }: {
 
 // ===== Input Toolbar (Model + Effort selectors) =====
 
-function InputToolbar({ processKey, isConnected, t }: {
+function InputToolbar({ processKey, isConnected, t, currentModel, currentEffort }: {
   processKey: string | null
   isConnected: boolean
   t: (key: string) => string
+  currentModel: string
+  currentEffort: string
 }) {
   const [modelOpen, setModelOpen] = useState(false)
   const [effortOpen, setEffortOpen] = useState(false)
@@ -698,6 +762,13 @@ function InputToolbar({ processKey, isConnected, t }: {
     window.electronAPI.ptyWrite(processKey, cmd + '\r')
   }
 
+  const getLabel = (type: string, value: string): string => {
+    if (type === 'model') {
+      return value.charAt(0).toUpperCase() + value.slice(1)
+    }
+    return value.charAt(0).toUpperCase() + value.slice(1)
+  }
+
   return (
     <div className="input-toolbar">
       <div ref={modelRef} className="toolbar-selector">
@@ -708,11 +779,11 @@ function InputToolbar({ processKey, isConnected, t }: {
           title={t('toolbar.model')}
         >
           <span className="toolbar-btn-icon">🧠</span>
-          <span className="toolbar-btn-label">{t('toolbar.model')}</span>
+          <span className="toolbar-btn-label">{getLabel('model', currentModel)}</span>
           <span className="toolbar-btn-arrow">▾</span>
         </button>
         {modelOpen && (
-          <div className="toolbar-dropdown">
+          <div className="toolbar-dropdown toolbar-dropdown-wide">
             {MODEL_OPTIONS.map(opt => (
               <button
                 key={opt.value}
@@ -734,11 +805,11 @@ function InputToolbar({ processKey, isConnected, t }: {
           title={t('toolbar.effort')}
         >
           <span className="toolbar-btn-icon">💡</span>
-          <span className="toolbar-btn-label">{t('toolbar.effort')}</span>
+          <span className="toolbar-btn-label">{getLabel('effort', currentEffort)}</span>
           <span className="toolbar-btn-arrow">▾</span>
         </button>
         {effortOpen && (
-          <div className="toolbar-dropdown">
+          <div className="toolbar-dropdown toolbar-dropdown-wide">
             {EFFORT_OPTIONS.map(opt => (
               <button
                 key={opt.value}

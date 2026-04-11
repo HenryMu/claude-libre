@@ -672,6 +672,19 @@ body {
   font-style: italic;
 }
 
+.system-success {
+  background: var(--bg-secondary);
+  border: 1px solid var(--success);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.system-success .thinking-label {
+  color: var(--success);
+  font-style: normal;
+  font-weight: 500;
+}
+
 .input-bar {
   display: flex;
   gap: 8px;
@@ -679,10 +692,14 @@ body {
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  width: 100%;
+  align-items: center;
+  position: relative;
 }
 
 .chat-input {
   flex: 1;
+  min-width: 0;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -692,6 +709,10 @@ body {
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s;
+}
+
+.input-bar .btn {
+  flex-shrink: 0;
 }
 
 .chat-input:focus {
@@ -712,6 +733,7 @@ body {
 
 .toolbar-selector {
   position: relative;
+  flex-shrink: 0;
 }
 
 .toolbar-btn {
@@ -719,14 +741,16 @@ body {
   border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 11px;
-  padding: 4px 8px;
+  padding: 4px 6px;
   border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   transition: all 0.15s;
   white-space: nowrap;
+  flex-shrink: 0;
+  min-width: fit-content;
 }
 
 .toolbar-btn:hover:not(:disabled) {
@@ -765,6 +789,10 @@ body {
   z-index: 100;
   min-width: 100px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.toolbar-dropdown-wide {
+  min-width: 140px;
 }
 
 .toolbar-dropdown-item {
@@ -1098,6 +1126,8 @@ body {
   font-size: 13px;
   font-weight: 500;
   transition: background 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .btn:hover {

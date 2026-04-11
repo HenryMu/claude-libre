@@ -1040,22 +1040,28 @@ body {
   border-top: 1px solid var(--border);
   flex-shrink: 0;
   width: 100%;
-  align-items: center;
+  align-items: flex-end;
   position: relative;
 }
 
 .chat-input {
   flex: 1;
   min-width: 0;
+  min-height: 40px;
+  max-height: 160px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   color: var(--text-primary);
   font-size: 14px;
+  line-height: 1.5;
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s;
+  resize: none;
+  overflow-y: hidden;
+  display: block;
 }
 
 .input-bar .btn {

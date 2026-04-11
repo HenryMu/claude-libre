@@ -34,8 +34,6 @@ interface SidecarSubmission {
   child: ChildProcessWithoutNullStreams
   stderr: string[]
   resultSeen: boolean
-  resolve: () => void
-  reject: (error: Error) => void
 }
 
 interface ParsedPermissionPrompt {
@@ -346,8 +344,25 @@ export class ClaudeManager {
     return blocks
   }
 
-  private writeStructuredLine(child: ChildProcessWithoutNullStreams, payload: Record<string, unknown>): void {
-    child.stdin.write(`${JSON.stringify(payload)}\n`)
+  private quoteWindowsArg(value: string): string {
+    if (!value) return '""'
+    if (!/[\s"]/g.test(value)) return value
+    return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1')}"`
+  }
+
+  private canWriteStructured(child: ChildProcessWithoutNullStreams): boolean {
+    return !!child.stdin && !child.stdin.destroyed && !child.stdin.writableEnded && !child.killed
+  }
+
+  private writeStructuredLine(child: ChildProcessWithoutNullStreams, payload: Record<string, unknown>): boolean {
+    if (!this.canWriteStructured(child)) return false
+    try {
+      child.stdin.write(`${JSON.stringify(payload)}\n`)
+      return true
+    } catch (error) {
+      console.error('[ClaudeDesktop:Main] Failed to write structured line:', error)
+      return false
+    }
   }
 
   private respondToStructuredPermission(processKey: string, pending: PendingPermission, response: string): void {
@@ -361,7 +376,7 @@ export class ClaudeManager {
     const matchedOption = pending.options?.find((option) => option.value.toLowerCase() === normalized)
     const shouldDeny = matchedOption?.kind === 'deny' || ['n', 'no', '2', 'deny'].includes(normalized)
 
-    this.writeStructuredLine(submission.child, {
+    const ok = this.writeStructuredLine(submission.child, {
       type: 'control_response',
       response: {
         subtype: 'success',
@@ -379,6 +394,9 @@ export class ClaudeManager {
           }
       }
     })
+    if (!ok) {
+      this.send('permission-failed', { processKey })
+    }
   }
 
   private handleSidecarLine(processKey: string, line: string): void {
@@ -404,7 +422,7 @@ export class ClaudeManager {
 
     if (type === 'result') {
       submission.resultSeen = true
-      if (!submission.child.stdin.destroyed && !submission.child.stdin.writableEnded) {
+      if (this.canWriteStructured(submission.child)) {
         submission.child.stdin.end()
       }
     }
@@ -457,13 +475,24 @@ export class ClaudeManager {
 
     let child: ChildProcessWithoutNullStreams
     if (process.platform === 'win32') {
-      const shell = process.env.COMSPEC || 'cmd.exe'
-      child = spawn(shell, ['/d', '/s', '/c', `claude ${args.join(' ')}`], {
-        cwd: entry.cwd,
-        env: spawnEnv,
-        stdio: 'pipe',
-        windowsHide: true
-      })
+      const claudeExecutable = this.resolveClaudeExecutable(spawnEnv)
+      if (/\.(cmd|bat)$/i.test(claudeExecutable)) {
+        const shell = process.env.COMSPEC || 'cmd.exe'
+        const command = [this.quoteWindowsArg(claudeExecutable), ...args.map((arg) => this.quoteWindowsArg(arg))].join(' ')
+        child = spawn(shell, ['/d', '/s', '/c', command], {
+          cwd: entry.cwd,
+          env: spawnEnv,
+          stdio: 'pipe',
+          windowsHide: true
+        })
+      } else {
+        child = spawn(claudeExecutable, args, {
+          cwd: entry.cwd,
+          env: spawnEnv,
+          stdio: 'pipe',
+          windowsHide: true
+        })
+      }
     } else {
       const claudeExecutable = this.resolveClaudeExecutable(spawnEnv)
       child = spawn(claudeExecutable, args, {
@@ -474,12 +503,17 @@ export class ClaudeManager {
     }
 
     return new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (callback: () => void) => {
+        if (settled) return
+        settled = true
+        callback()
+      }
+
       const submission: SidecarSubmission = {
         child,
         stderr: [],
-        resultSeen: false,
-        resolve,
-        reject
+        resultSeen: false
       }
 
       this.sidecarSubmissions.set(request.processKey, submission)
@@ -499,10 +533,17 @@ export class ClaudeManager {
         }
       })
 
+      child.stdin.on('error', (error: NodeJS.ErrnoException) => {
+        stdoutReader.close()
+        const stderrText = submission.stderr.join('').trim()
+        this.cleanupSidecarSubmission(request.processKey)
+        finish(() => reject(new Error(stderrText || error.message || '图片消息发送失败：输入流已关闭')))
+      })
+
       child.on('error', (error) => {
         stdoutReader.close()
         this.cleanupSidecarSubmission(request.processKey)
-        reject(error)
+        finish(() => reject(error))
       })
 
       child.on('close', (code) => {
@@ -511,14 +552,14 @@ export class ClaudeManager {
         this.cleanupSidecarSubmission(request.processKey)
 
         if (code === 0) {
-          resolve()
+          finish(() => resolve())
           return
         }
 
-        reject(new Error(stderrText || `图片消息发送失败（退出码 ${code ?? 'unknown'}）`))
+        finish(() => reject(new Error(stderrText || `图片消息发送失败（退出码 ${code ?? 'unknown'}）`)))
       })
 
-      this.writeStructuredLine(child, {
+      const wrote = this.writeStructuredLine(child, {
         type: 'user',
         uuid: randomUUID(),
         parent_tool_use_id: null,
@@ -527,6 +568,12 @@ export class ClaudeManager {
           content
         }
       })
+
+      if (!wrote) {
+        stdoutReader.close()
+        this.cleanupSidecarSubmission(request.processKey)
+        finish(() => reject(new Error('图片消息发送失败：Claude 输入流未就绪')))
+      }
     })
   }
 
@@ -659,6 +706,14 @@ export class ClaudeManager {
   }
 
   private isExecutable(filePath: string): boolean {
+    if (process.platform === 'win32') {
+      if (!filePath) return false
+      const ext = path.extname(filePath).toLowerCase()
+      if (!ext) return false
+      if (!['.exe', '.cmd', '.bat', '.com'].includes(ext)) return false
+      return fs.existsSync(filePath)
+    }
+
     try {
       fs.accessSync(filePath, fs.constants.X_OK)
       return true
@@ -670,10 +725,11 @@ export class ClaudeManager {
   private mergePathEntries(entries: Array<string | undefined | null>): string {
     const seen = new Set<string>()
     const result: string[] = []
+    const delimiter = path.delimiter
 
     for (const entry of entries) {
       if (!entry) continue
-      for (const part of entry.split(':')) {
+      for (const part of entry.split(delimiter)) {
         const trimmed = part.trim()
         if (!trimmed || seen.has(trimmed)) continue
         seen.add(trimmed)
@@ -681,7 +737,7 @@ export class ClaudeManager {
       }
     }
 
-    return result.join(':')
+    return result.join(delimiter)
   }
 
   private parseEnvOutput(output: Buffer): Record<string, string> {
@@ -790,8 +846,15 @@ export class ClaudeManager {
       return this.resolvedClaudePath
     }
 
+    const windowsCandidateNames = ['claude.cmd', 'claude.exe', 'claude.bat', 'claude.com']
     const candidatePaths = [
       process.env.CLAUDE_PATH,
+      ...(process.platform === 'win32'
+        ? windowsCandidateNames.flatMap((name) => [
+          path.join(process.env.APPDATA || '', 'npm', name),
+          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'claude', name)
+        ])
+        : []),
       path.join('/opt/homebrew/bin', 'claude'),
       path.join('/usr/local/bin', 'claude'),
       path.join('/usr/bin', 'claude'),
@@ -806,12 +869,15 @@ export class ClaudeManager {
       }
     }
 
-    const pathEntries = (env.PATH || '').split(':').filter(Boolean)
+    const pathEntries = (env.PATH || '').split(path.delimiter).filter(Boolean)
     for (const dir of pathEntries) {
-      const candidate = path.join(dir, 'claude')
-      if (this.isExecutable(candidate)) {
-        this.resolvedClaudePath = candidate
-        return candidate
+      const names = process.platform === 'win32' ? windowsCandidateNames : ['claude']
+      for (const name of names) {
+        const candidate = path.join(dir, name)
+        if (this.isExecutable(candidate)) {
+          this.resolvedClaudePath = candidate
+          return candidate
+        }
       }
     }
 

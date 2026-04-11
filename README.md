@@ -66,8 +66,8 @@ Both are great tools — they just serve different needs. If you want a polished
 ### Install
 
 ```bash
-git clone https://github.com/HenryMu/claude-code-desktop.git
-cd claude-code-desktop
+git clone https://github.com/HenryMu/Claude-Code-GUI.git
+cd Claude-Code-GUI
 npm install
 ```
 

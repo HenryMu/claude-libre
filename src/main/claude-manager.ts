@@ -64,7 +64,9 @@ const WORKSPACE_TRUST_MATCHERS = [
   /Accessing workspace:/i,
   /Quick safety check/i,
   /Yes,\s*I trust this folder/i,
-  /Enter to confirm/i
+  /Enter to confirm/i,
+  /No,\s*exit/i,
+  /Security guide/i
 ]
 
 const RESPONSE_STRATEGIES: Array<{ name: string; build: (char: string) => Array<string | null> }> = [
@@ -631,7 +633,13 @@ export class ClaudeManager {
 
     const stripped = this.stripAnsi(buf)
     const recent = stripped.slice(-2000)
-    const isWorkspaceTrustPrompt = WORKSPACE_TRUST_MATCHERS.every((pattern) => pattern.test(recent))
+    const matcherHits = WORKSPACE_TRUST_MATCHERS.filter((pattern) => pattern.test(recent)).length
+    const isWorkspaceTrustPrompt = /Accessing workspace:/i.test(recent)
+      && (
+        /Quick safety check/i.test(recent)
+        || /Yes,\s*I trust this folder/i.test(recent)
+        || matcherHits >= 3
+      )
     if (!isWorkspaceTrustPrompt) {
       if (buf.length > 8000) this.workspaceTrustBuffers.set(processKey, buf.slice(-3000))
       return false
@@ -643,7 +651,7 @@ export class ClaudeManager {
     this.workspaceTrustAttempts.set(processKey, attempts + 1)
     this.workspaceTrustBuffers.set(processKey, '')
 
-    const response = attempts === 0 ? '\r' : '1\r'
+    const response = attempts === 0 ? '1\r' : '\r'
     console.log(`[ClaudeDesktop:Main] Auto-confirm workspace trust with attempt ${attempts + 1}`)
     setTimeout(() => this.writeRaw(processKey, response), 120)
     return true

@@ -11,6 +11,7 @@ stages:
         displayName: Nodejs 构建
         nodeVersion: 22
         commands:
+          - npm config set registry https://registry.npmmirror.com
           - npm install
           - npx electron-vite build
         artifacts:

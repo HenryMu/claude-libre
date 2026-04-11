@@ -387,9 +387,27 @@ function ProfileRow({
       {isApplied && !isRenaming && <span className="settings-applied-mark">✓</span>}
       {!isRenaming && (
         <div className="settings-profile-actions">
-          <button className="settings-profile-btn" title="Apply" onMouseDown={e => { e.stopPropagation(); onApply() }}>▶</button>
-          <button className="settings-profile-btn" title="Edit" onMouseDown={e => { e.stopPropagation(); onEdit() }}>✎</button>
-          <button className="settings-profile-btn settings-profile-btn-danger" title="Delete" onMouseDown={e => { e.stopPropagation(); onDelete() }}>✕</button>
+          <button
+            className="settings-profile-btn"
+            title="Apply"
+            onClick={e => { e.stopPropagation(); onApply() }}
+          >
+            ▶
+          </button>
+          <button
+            className="settings-profile-btn"
+            title="Edit"
+            onClick={e => { e.stopPropagation(); onEdit() }}
+          >
+            ✎
+          </button>
+          <button
+            className="settings-profile-btn settings-profile-btn-danger"
+            title="Delete"
+            onClick={e => { e.stopPropagation(); onDelete() }}
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>

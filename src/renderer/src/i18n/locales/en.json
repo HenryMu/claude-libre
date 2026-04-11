@@ -55,6 +55,9 @@
     "inputPlaceholderOffline": "Connect to start typing...",
     "send": "Send",
     "thinking": "Claude is thinking...",
+    "runningTools": "Claude is running tools...",
+    "planning": "Claude is planning...",
+    "waitingPermission": "Waiting for permission...",
     "you": "You",
     "claude": "Claude"
   },

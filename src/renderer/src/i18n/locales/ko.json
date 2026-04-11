@@ -36,6 +36,9 @@
     "inputPlaceholderOffline": "연결 후 입력을 시작하세요...",
     "send": "보내기",
     "thinking": "Claude가 생각 중입니다...",
+    "runningTools": "Claude가 도구를 실행 중입니다...",
+    "planning": "Claude가 계획 중입니다...",
+    "waitingPermission": "권한 확인을 기다리는 중...",
     "you": "나",
     "claude": "Claude"
   },

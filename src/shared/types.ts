@@ -177,11 +177,18 @@ export interface ActiveProcess {
   cwd: string
 }
 
+export interface PermissionOptionPayload {
+  label: string
+  value: string
+  kind?: 'allow' | 'deny' | 'secondary'
+}
+
 export interface PermissionPromptPayload {
   processKey: string
   projectSanitizedName: string
   prompt: string
   timeout: number
+  options?: PermissionOptionPayload[]
 }
 
 export interface PermissionClearPayload {

@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useTranslation } from 'react-i18next'
-import type { SessionMeta, ActiveProcess, JsonlLine, SessionDetailsPayload, FileNode, CodeViewContext } from '../../../shared/types'
+import type { SessionMeta, ActiveProcess, JsonlLine, SessionDetailsPayload, FileNode, CodeViewContext, ToolResultBlock, ToolUseBlock, ContentBlock, PermissionPromptPayload } from '../../../shared/types'
 import type { TabType } from '../App'
 import type { ConnectionInfo } from '../hooks/useClaudeManager'
 
@@ -9,6 +9,20 @@ import type { ConnectionInfo } from '../hooks/useClaudeManager'
 
 interface SlashCommand {
   cmd: string
+}
+
+interface FileMentionItem {
+  name: string
+  relativePath: string
+  fullPath: string
+}
+
+interface AutocompleteItem {
+  key: string
+  primary: string
+  secondary: string
+  kind: 'command' | 'file'
+  value: string
 }
 
 const SLASH_COMMANDS: SlashCommand[] = [
@@ -72,6 +86,352 @@ interface MainContentProps {
   codeViewContext: CodeViewContext | null
   onViewInCode: (filePath: string, oldContent: string, newContent: string) => void
   onClearCodeView: () => void
+}
+
+type TurnStatus = 'idle' | 'thinking' | 'running_tools' | 'planning'
+type ConversationState = TurnStatus | 'waiting_permission'
+
+interface TurnPiece {
+  id: string
+  kind: 'text' | 'thinking' | 'tool'
+  text?: string
+  toolId?: string
+}
+
+interface NormalizedToolCall {
+  id: string
+  name: string
+  input: Record<string, unknown>
+  result?: ToolResultBlock | null
+  isPlanTool: boolean
+}
+
+interface NormalizedTurn {
+  id: string
+  userText: string
+  pieces: TurnPiece[]
+  toolCalls: NormalizedToolCall[]
+  startedAt?: string
+  durationMs?: number
+  isUserInitiated: boolean
+  status: TurnStatus
+}
+
+interface ExtractedLineContent {
+  textSegments: string[]
+  thinkingSegments: string[]
+  toolUses: ToolUseBlock[]
+  toolResults: ToolResultBlock[]
+}
+
+const PLAN_TOOL_NAMES = new Set([
+  'ExitPlanMode',
+  'AskUserQuestion',
+  'TaskCreate',
+  'TaskUpdate',
+  'TaskGet',
+  'TaskList',
+])
+
+const MARKDOWN_COMPONENTS = {
+  a: ({ ...props }: any) => <a {...props} target="_blank" rel="noreferrer" />,
+  code: ({ className, children, ...props }: any) => {
+    const isBlock = Boolean(className)
+    if (isBlock) {
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      )
+    }
+
+    return (
+      <code className="inline-code" {...props}>
+        {children}
+      </code>
+    )
+  }
+}
+
+function flattenFileNodes(nodes: FileNode[], basePath: string): FileMentionItem[] {
+  const result: FileMentionItem[] = []
+
+  const walk = (items: FileNode[]) => {
+    for (const item of items) {
+      if (item.isDir) {
+        if (item.children?.length) walk(item.children)
+        continue
+      }
+      const relativePath = item.path
+        .replace(basePath, '')
+        .replace(/^[/\\]/, '')
+      result.push({
+        name: item.name,
+        relativePath,
+        fullPath: item.path,
+      })
+    }
+  }
+
+  walk(nodes)
+  return result
+}
+
+function scoreFileMention(item: FileMentionItem, query: string): number {
+  if (!query) return item.relativePath.length
+
+  const q = query.toLowerCase()
+  const path = item.relativePath.toLowerCase()
+  const name = item.name.toLowerCase()
+
+  if (path === q) return 0
+  if (name === q) return 1
+  if (name.startsWith(q)) return 2
+  if (path.startsWith(q)) return 3
+  if (name.includes(q)) return 4
+  if (path.includes(q)) return 5
+  return 9999
+}
+
+function getMentionQuery(value: string, caretIndex: number): { query: string; start: number; end: number } | null {
+  const beforeCaret = value.slice(0, caretIndex)
+  const match = beforeCaret.match(/(?:^|\s)@([^\s@]*)$/)
+  if (!match) return null
+
+  const query = match[1] || ''
+  const start = beforeCaret.length - query.length - 1
+  return {
+    query,
+    start,
+    end: caretIndex,
+  }
+}
+
+function isPlanTool(name: string, input: Record<string, unknown>): boolean {
+  if (PLAN_TOOL_NAMES.has(name)) return true
+  return name === 'Write' && typeof input.file_path === 'string' && String(input.file_path).includes('/.claude/plans/')
+}
+
+function extractLineContent(content: string | ContentBlock[] | undefined): ExtractedLineContent {
+  const extracted: ExtractedLineContent = {
+    textSegments: [],
+    thinkingSegments: [],
+    toolUses: [],
+    toolResults: [],
+  }
+
+  if (typeof content === 'string') {
+    if (content.trim()) extracted.textSegments.push(content)
+    return extracted
+  }
+
+  if (!Array.isArray(content)) return extracted
+
+  for (const block of content) {
+    if (!block || typeof block !== 'object' || !('type' in block)) continue
+
+    switch (block.type) {
+      case 'text':
+        if (typeof block.text === 'string' && block.text.trim()) extracted.textSegments.push(block.text)
+        break
+      case 'thinking':
+        if (typeof block.thinking === 'string' && block.thinking.trim()) extracted.thinkingSegments.push(block.thinking)
+        break
+      case 'tool_use':
+        extracted.toolUses.push(block)
+        break
+      case 'tool_result':
+        extracted.toolResults.push(block)
+        break
+      default:
+        break
+    }
+  }
+
+  return extracted
+}
+
+function appendTurnPiece(turn: NormalizedTurn, piece: TurnPiece): void {
+  if (piece.kind === 'text') {
+    const nextText = piece.text?.trim()
+    if (!nextText) return
+    const lastPiece = turn.pieces[turn.pieces.length - 1]
+    if (lastPiece?.kind === 'text' && lastPiece.text) {
+      lastPiece.text = `${lastPiece.text}\n\n${nextText}`
+      return
+    }
+  }
+
+  turn.pieces.push(piece)
+}
+
+function createTurn(line: JsonlLine, isUserInitiated: boolean): NormalizedTurn {
+  return {
+    id: line.uuid || `turn-${Date.now()}`,
+    userText: '',
+    pieces: [],
+    toolCalls: [],
+    startedAt: line.timestamp,
+    isUserInitiated,
+    status: 'idle',
+  }
+}
+
+function deriveTurnStatus(turn: NormalizedTurn): TurnStatus {
+  const hasUserText = turn.userText.trim().length > 0
+  const hasAssistantText = turn.pieces.some((piece) => piece.kind === 'text' && piece.text?.trim())
+  const hasThinking = turn.pieces.some((piece) => piece.kind === 'thinking' && piece.text?.trim())
+  const hasPlanTools = turn.toolCalls.some((tool) => tool.isPlanTool)
+  const hasPendingTools = turn.toolCalls.some((tool) => !tool.result)
+
+  if (hasPlanTools && (hasPendingTools || (!hasAssistantText && !turn.durationMs))) return 'planning'
+  if (hasPendingTools) return 'running_tools'
+  if ((hasUserText && !hasAssistantText && turn.toolCalls.length === 0) || (hasThinking && !hasAssistantText && !turn.durationMs)) return 'thinking'
+  return 'idle'
+}
+
+function normalizeSessionLines(lines: JsonlLine[]): NormalizedTurn[] {
+  const turns: NormalizedTurn[] = []
+  let currentTurn: NormalizedTurn | null = null
+  let toolMap = new Map<string, NormalizedToolCall>()
+
+  const flushTurn = () => {
+    if (!currentTurn) return
+    currentTurn.status = deriveTurnStatus(currentTurn)
+    if (currentTurn.userText.trim() || currentTurn.pieces.length > 0) turns.push(currentTurn)
+    currentTurn = null
+    toolMap = new Map()
+  }
+
+  const ensureTurn = (line: JsonlLine, isUserInitiated = false) => {
+    if (!currentTurn) {
+      currentTurn = createTurn(line, isUserInitiated)
+      toolMap = new Map()
+    }
+    return currentTurn
+  }
+
+  const attachToolResult = (turn: NormalizedTurn, result: ToolResultBlock) => {
+    const existing = toolMap.get(result.tool_use_id)
+    if (existing) {
+      existing.result = result
+      return
+    }
+
+    const syntheticTool: NormalizedToolCall = {
+      id: result.tool_use_id,
+      name: 'tool_result',
+      input: {},
+      result,
+      isPlanTool: false,
+    }
+    toolMap.set(syntheticTool.id, syntheticTool)
+    turn.toolCalls.push(syntheticTool)
+    appendTurnPiece(turn, {
+      id: `${turn.id}-tool-${turn.pieces.length}`,
+      kind: 'tool',
+      toolId: syntheticTool.id,
+    })
+  }
+
+  for (const line of lines) {
+    if (line.type === 'system') {
+      if ((line as any).subtype === 'turn_duration' && currentTurn) {
+        const durationMs = Number((line as any).durationMs)
+        if (!Number.isNaN(durationMs) && durationMs > 0) currentTurn.durationMs = durationMs
+      }
+      continue
+    }
+
+    if (line.type !== 'user' && line.type !== 'assistant') continue
+
+    const extracted = extractLineContent(line.message?.content)
+    const textContent = extracted.textSegments.join('\n\n').trim()
+
+    if (line.type === 'user') {
+      if (textContent) {
+        flushTurn()
+        const turn = ensureTurn(line, true)
+        turn.userText = textContent
+      } else if (!extracted.toolResults.length) {
+        continue
+      }
+
+      const turn = ensureTurn(line, Boolean(textContent))
+      for (const result of extracted.toolResults) attachToolResult(turn, result)
+      continue
+    }
+
+    if (!textContent && extracted.thinkingSegments.length === 0 && extracted.toolUses.length === 0 && extracted.toolResults.length === 0) {
+      continue
+    }
+
+    const turn = ensureTurn(line, false)
+
+    for (const segment of extracted.textSegments) {
+      appendTurnPiece(turn, {
+        id: `${turn.id}-text-${turn.pieces.length}`,
+        kind: 'text',
+        text: segment,
+      })
+    }
+
+    for (const segment of extracted.thinkingSegments) {
+      appendTurnPiece(turn, {
+        id: `${turn.id}-thinking-${turn.pieces.length}`,
+        kind: 'thinking',
+        text: segment,
+      })
+    }
+
+    for (const toolUse of extracted.toolUses) {
+      const toolCall: NormalizedToolCall = {
+        id: toolUse.id,
+        name: toolUse.name,
+        input: toolUse.input || {},
+        isPlanTool: isPlanTool(toolUse.name, toolUse.input || {}),
+      }
+      toolMap.set(toolCall.id, toolCall)
+      turn.toolCalls.push(toolCall)
+      appendTurnPiece(turn, {
+        id: `${turn.id}-tool-${turn.pieces.length}`,
+        kind: 'tool',
+        toolId: toolCall.id,
+      })
+    }
+
+    for (const result of extracted.toolResults) attachToolResult(turn, result)
+  }
+
+  flushTurn()
+  return turns
+}
+
+function deriveConversationState(args: {
+  turns: NormalizedTurn[]
+  permissionPrompt: PermissionPromptPayload | null
+  optimisticThinking: boolean
+  isPending: boolean
+  isConnected: boolean
+}): ConversationState | 'idle' {
+  if (args.permissionPrompt) return 'waiting_permission'
+
+  const lastTurn = args.turns[args.turns.length - 1]
+  if (lastTurn?.status && lastTurn.status !== 'idle') return lastTurn.status
+
+  if ((args.optimisticThinking || args.isPending) && args.isConnected) return 'thinking'
+  return 'idle'
+}
+
+function formatTurnDuration(durationMs?: number): string | null {
+  if (!durationMs || durationMs <= 0) return null
+
+  if (durationMs < 1000) return `${durationMs}ms`
+  if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(durationMs < 10_000 ? 1 : 0)}s`
+
+  const minutes = Math.floor(durationMs / 60_000)
+  const seconds = Math.round((durationMs % 60_000) / 1000)
+  return `${minutes}m ${seconds}s`
 }
 
 export default function MainContent({
@@ -326,64 +686,63 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 }) {
   const { t } = useTranslation()
   const [inputValue, setInputValue] = useState('')
-  const [permissionPrompt, setPermissionPrompt] = useState<string | null>(null)
+  const [permissionPrompt, setPermissionPrompt] = useState<PermissionPromptPayload | null>(null)
   const [permissionCountdown, setPermissionCountdown] = useState(0)
   const [permissionFailed, setPermissionFailed] = useState(false)
   const [manualInput, setManualInput] = useState('')
-  const [isThinking, setIsThinking] = useState(false)
+  const [optimisticThinking, setOptimisticThinking] = useState(false)
   const [systemSuccessMsg, setSystemSuccessMsg] = useState<string | null>(null)
   const [currentModel, setCurrentModel] = useState<string>('sonnet')
   const [currentEffort, setCurrentEffort] = useState<string>('medium')
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [fileMentions, setFileMentions] = useState<FileMentionItem[]>([])
+  const [caretIndex, setCaretIndex] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const prevAssistantCount = useRef(0)
   const successMsgRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const turns = useMemo(() => normalizeSessionLines(sessionDetails?.lines || []), [sessionDetails?.lines])
+  const conversationState = useMemo(
+    () => deriveConversationState({
+      turns,
+      permissionPrompt,
+      optimisticThinking,
+      isPending,
+      isConnected,
+    }),
+    [turns, permissionPrompt, optimisticThinking, isPending, isConnected]
+  )
 
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [sessionDetails, isThinking])
+  }, [turns, conversationState, systemSuccessMsg])
 
   // Reset on session change
   useEffect(() => {
-    setIsThinking(false)
+    setOptimisticThinking(false)
     setSystemSuccessMsg(null)
     setPermissionPrompt(null)
     setConnectError(null)
     setCurrentModel('sonnet')
     setCurrentEffort('medium')
-    prevAssistantCount.current = 0
     if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
   }, [selectedSession])
 
-  // Detect new assistant message → stop thinking
+  // Session file updated → hand control to normalized turn state
   useEffect(() => {
-    if (!sessionDetails) return
-    const count = sessionDetails.lines.filter(l => l.type === 'assistant').length
-    if (count > prevAssistantCount.current) setIsThinking(false)
-    prevAssistantCount.current = count
-  }, [sessionDetails])
-
-  // Start thinking on new user message from any source
-  useEffect(() => {
-    const unsub = window.electronAPI.onSessionUpdated((data) => {
-      if (data.sessionId !== selectedSession) return
-      const hasUser = data.newLines.some(l => l.type === 'user')
-      const hasAssistant = data.newLines.some(l => l.type === 'assistant')
-      if (hasUser && !hasAssistant) setIsThinking(true)
-    })
-    return unsub
-  }, [selectedSession])
+    if (sessionDetails) setOptimisticThinking(false)
+  }, [sessionDetails?.lines.length, sessionDetails?.meta.sessionId])
 
   // Permission events — filtered by processKey
   useEffect(() => {
     const unsub1 = window.electronAPI.onPermissionPrompt((payload) => {
       if (payload.processKey !== processKey) return
-      setPermissionPrompt(payload.prompt)
+      setPermissionPrompt(payload)
       setPermissionCountdown(Math.round(payload.timeout / 1000))
       setPermissionFailed(false)
       setManualInput('')
+      setOptimisticThinking(false)
     })
     const unsub2 = window.electronAPI.onPermissionClear((payload) => {
       if (payload.processKey !== processKey) return
@@ -446,7 +805,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
       for (const pattern of patterns) {
         if (pattern.test(buffer)) {
-          setIsThinking(false)
+          setOptimisticThinking(false)
           setSystemSuccessMsg(buffer.trim())
           // Auto-hide after 3 seconds
           if (successMsgRef.current) clearInterval(successMsgRef.current)
@@ -504,50 +863,115 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
     if (!text || !processKey) return
     window.electronAPI.ptyWrite(processKey, text + '\r')
     setInputValue('')
-    setIsThinking(true)
+    setCaretIndex(0)
+    setOptimisticThinking(true)
     setSystemSuccessMsg(null)
     if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-    if (e.key === 'Escape') { setShowCommands(false) }
+    if (e.key === 'Escape') { setAutocompleteMode(null) }
   }
 
-  // Slash command autocomplete
-  const [showCommands, setShowCommands] = useState(false)
-  const [filteredCommands, setFilteredCommands] = useState<SlashCommand[]>([])
+  // Input autocomplete
+  const [autocompleteMode, setAutocompleteMode] = useState<'command' | 'file' | null>(null)
+  const [autocompleteItems, setAutocompleteItems] = useState<AutocompleteItem[]>([])
   const [activeCmdIndex, setActiveCmdIndex] = useState(0)
 
   useEffect(() => {
+    let disposed = false
+    setFileMentions([])
+    window.electronAPI.readDir(realPath)
+      .then((nodes) => {
+        if (!disposed) setFileMentions(flattenFileNodes(nodes, realPath))
+      })
+      .catch(() => {
+        if (!disposed) setFileMentions([])
+      })
+    return () => { disposed = true }
+  }, [realPath])
+
+  useEffect(() => {
+    const mention = getMentionQuery(inputValue, caretIndex)
+
+    if (mention) {
+      const normalizedQuery = mention.query.toLowerCase()
+      const filtered = fileMentions
+        .map((item) => ({ item, score: scoreFileMention(item, normalizedQuery) }))
+        .filter(({ score }) => score < 9999)
+        .sort((a, b) => a.score - b.score || a.item.relativePath.localeCompare(b.item.relativePath))
+        .slice(0, 8)
+        .map(({ item }) => ({
+          key: item.fullPath,
+          primary: `@${item.relativePath}`,
+          secondary: item.name === item.relativePath ? 'File' : item.name,
+          kind: 'file' as const,
+          value: item.relativePath,
+        }))
+      setAutocompleteItems(filtered)
+      setActiveCmdIndex(0)
+      setAutocompleteMode(filtered.length > 0 ? 'file' : null)
+      return
+    }
+
     const trimmed = inputValue.trim()
     if (trimmed.startsWith('/')) {
       const query = trimmed.toLowerCase()
-      const filtered = SLASH_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(query))
-      setFilteredCommands(filtered)
+      const filtered = SLASH_COMMANDS
+        .filter(c => c.cmd.toLowerCase().startsWith(query))
+        .map((cmd) => ({
+          key: cmd.cmd,
+          primary: cmd.cmd,
+          secondary: t(`commands.${cmd.cmd}` as any, cmd.cmd),
+          kind: 'command' as const,
+          value: cmd.cmd,
+        }))
+      setAutocompleteItems(filtered)
       setActiveCmdIndex(0)
-      setShowCommands(filtered.length > 0)
+      setAutocompleteMode(filtered.length > 0 ? 'command' : null)
     } else {
-      setShowCommands(false)
+      setAutocompleteMode(null)
+      setAutocompleteItems([])
     }
+  }, [inputValue, fileMentions, t, caretIndex])
+
+  const selectAutocompleteItem = useCallback((item: AutocompleteItem) => {
+    if (item.kind === 'command') {
+      setInputValue(item.value + ' ')
+      setCaretIndex(item.value.length + 1)
+      setAutocompleteMode(null)
+      return
+    }
+
+    const input = inputRef.current
+    const caretIndex = input?.selectionStart ?? inputValue.length
+    const mention = getMentionQuery(inputValue, caretIndex)
+    if (!mention) return
+
+    const nextValue = `${inputValue.slice(0, mention.start)}@${item.value} ${inputValue.slice(mention.end)}`
+    setInputValue(nextValue)
+    setCaretIndex(mention.start + item.value.length + 2)
+    setAutocompleteMode(null)
+
+    requestAnimationFrame(() => {
+      const nextCaret = mention.start + item.value.length + 2
+      inputRef.current?.focus()
+      inputRef.current?.setSelectionRange(nextCaret, nextCaret)
+    })
   }, [inputValue])
 
-  const selectCommand = useCallback((cmd: string) => {
-    setInputValue(cmd + ' ')
-    setShowCommands(false)
-  }, [])
-
   useEffect(() => {
-    if (!showCommands) return
+    if (!autocompleteMode) return
     const handler = (e: MouseEvent) => {
       const target = e.target as Node
       // Don't close if clicking inside autocomplete
       if (cmdListRef.current?.contains(target)) return
-      setShowCommands(false)
+      setAutocompleteMode(null)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [showCommands])
+  }, [autocompleteMode])
 
   const cmdListRef = useRef<HTMLDivElement>(null)
 
@@ -561,18 +985,6 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
     )
   }
 
-  // Messages
-  const allMessages = (sessionDetails?.lines || []).filter(l => l.type === 'user' || l.type === 'assistant')
-  const messages = allMessages.filter((msg) => {
-    if (msg.type === 'user') {
-      const content = msg.message?.content
-      if (typeof content === 'string') return content.trim().length > 0
-      if (Array.isArray(content)) return content.some((b: any) => b.type === 'text' && b.text?.trim())
-      return false
-    }
-    return true
-  })
-
   return (
     <div className="tab-pane history-pane">
       <div className="history-messages">
@@ -582,7 +994,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
             <button className="btn btn-connect" onClick={handleConnect}>{t('conversation.connectStart')}</button>
             {connectError && <p style={{ color: 'var(--danger)', marginTop: 8, fontSize: 12 }}>{connectError}</p>}
           </div>
-        ) : messages.length === 0 && !isConnected ? (
+        ) : turns.length === 0 && !isConnected ? (
           <div className="empty-state" style={{ padding: 40 }}>
             <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>{t('conversation.noMessagesConnect')}</p>
             <button className="btn btn-connect" onClick={handleConnect}>{t('conversation.connect')}</button>
@@ -590,21 +1002,27 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
           </div>
         ) : (
           <>
-            {isPending && isConnected && messages.length === 0 && (
+            {isPending && isConnected && turns.length === 0 && (
               <div className="draft-pending-banner">
                 <span className="thinking-label">{t('conversation.creatingSessionHint')}</span>
               </div>
             )}
-            {messages.map((msg, i) => (
-              <MessageItem key={msg.uuid || i} line={msg} project={project} onViewInCode={onViewInCode} />
+            {turns.map((turn) => (
+              <TurnItem key={turn.id} turn={turn} onViewInCode={onViewInCode} />
             ))}
 
-            {isThinking && !systemSuccessMsg && (
-              <div className="thinking-indicator">
+            {conversationState !== 'idle' && conversationState !== 'waiting_permission' && !systemSuccessMsg && (
+              <div className={`thinking-indicator thinking-indicator-${conversationState}`}>
                 <div className="thinking-dots">
                   <span className="thinking-dot" /><span className="thinking-dot" /><span className="thinking-dot" />
                 </div>
-                <span className="thinking-label">{t('conversation.thinking')}</span>
+                <span className="thinking-label">
+                  {conversationState === 'planning'
+                    ? t('conversation.planning')
+                    : conversationState === 'running_tools'
+                      ? t('conversation.runningTools')
+                      : t('conversation.thinking')}
+                </span>
               </div>
             )}
             {systemSuccessMsg && (
@@ -636,9 +1054,9 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
       {permissionPrompt && processKey && (
         <div className={`permission-bar ${permissionFailed ? 'permission-bar-failed' : ''}`}>
           <div className="permission-bar-top">
-            <span className="permission-text">{permissionPrompt}</span>
+            <span className="permission-text">{permissionPrompt.prompt}</span>
             {permissionFailed ? (
-              <span className="permission-failed-badge">Auto-response failed</span>
+              <span className="permission-failed-badge">{t('permission.failedBadge')}</span>
             ) : (
               <span className="permission-countdown">{permissionCountdown}s</span>
             )}
@@ -646,50 +1064,70 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
           <div className="permission-bar-actions">
             {!permissionFailed && (
               <div className="permission-actions">
-                <button className="btn btn-allow" onClick={() => handlePermissionResponse('y')}>Allow (y)</button>
-                <button className="btn btn-allow" onClick={() => handlePermissionResponse('a')}>Always (a)</button>
-                <button className="btn btn-deny" onClick={() => handlePermissionResponse('n')}>Deny (n)</button>
+                {(permissionPrompt.options && permissionPrompt.options.length > 0 ? permissionPrompt.options : [
+                  { label: t('permission.allow'), value: 'y', kind: 'allow' as const },
+                  { label: t('permission.always'), value: 'a', kind: 'secondary' as const },
+                  { label: t('permission.deny'), value: 'n', kind: 'deny' as const }
+                ]).map((option) => (
+                  <button
+                    key={`${option.value}-${option.label}`}
+                    className={`btn ${option.kind === 'deny' ? 'btn-deny' : option.kind === 'secondary' ? 'btn-secondary' : 'btn-allow'}`}
+                    onClick={() => handlePermissionResponse(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
             )}
             <div className="permission-manual">
               <input type="text" className="permission-manual-input"
-                placeholder={permissionFailed ? "Type y/n and Enter..." : "Manual input..."}
+                placeholder={permissionFailed ? t('permission.manualPlaceholderFailed') : t('permission.manualPlaceholder')}
                 value={manualInput} onChange={(e) => setManualInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleManualSend() }}
                 autoFocus={permissionFailed} />
-              <button className="btn btn-manual" onClick={handleManualSend}>Send</button>
+              <button className="btn btn-manual" onClick={handleManualSend}>{t('permission.send')}</button>
             </div>
           </div>
-          {permissionFailed && <div className="permission-hint">Auto-response failed. Type y/n above or switch to Terminal tab.</div>}
+          {permissionFailed && <div className="permission-hint">{t('permission.failedHint')}</div>}
         </div>
       )}
 
       {/* Input bar */}
       <div className="input-bar">
-        <input type="text" className="chat-input"
+        <input ref={inputRef} type="text" className="chat-input"
           placeholder={isConnected ? t('conversation.inputPlaceholder') : t('conversation.inputPlaceholderOffline')}
-          value={inputValue} onChange={(e) => setInputValue(e.target.value)}
+          value={inputValue}
+          onChange={(e) => {
+            setInputValue(e.target.value)
+            setCaretIndex(e.target.selectionStart ?? e.target.value.length)
+          }}
+          onClick={(e) => setCaretIndex((e.target as HTMLInputElement).selectionStart ?? inputValue.length)}
+          onKeyUp={(e) => setCaretIndex((e.currentTarget as HTMLInputElement).selectionStart ?? inputValue.length)}
+          onSelect={(e) => setCaretIndex((e.currentTarget as HTMLInputElement).selectionStart ?? inputValue.length)}
           onKeyDown={(e) => {
-            if (showCommands && filteredCommands.length > 0) {
-              if (e.key === 'ArrowDown') { e.preventDefault(); setActiveCmdIndex(i => (i + 1) % filteredCommands.length); return }
-              if (e.key === 'ArrowUp') { e.preventDefault(); setActiveCmdIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length); return }
-              if (e.key === 'Tab') { e.preventDefault(); selectCommand(filteredCommands[activeCmdIndex].cmd); return }
+            if (autocompleteMode && autocompleteItems.length > 0) {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setActiveCmdIndex(i => (i + 1) % autocompleteItems.length); return }
+              if (e.key === 'ArrowUp') { e.preventDefault(); setActiveCmdIndex(i => (i - 1 + autocompleteItems.length) % autocompleteItems.length); return }
+              if (e.key === 'Tab') { e.preventDefault(); selectAutocompleteItem(autocompleteItems[activeCmdIndex]); return }
             }
             handleKeyDown(e)
           }}
           disabled={!isConnected} />
         {/* Command autocomplete */}
-        {showCommands && filteredCommands.length > 0 && (
+        {autocompleteMode && autocompleteItems.length > 0 && (
           <div ref={cmdListRef} className="command-autocomplete">
-            {filteredCommands.map((cmd, i) => (
+            {autocompleteItems.map((item, i) => (
               <div
-                key={cmd.cmd}
+                key={item.key}
                 className={`command-item ${i === activeCmdIndex ? 'command-item-active' : ''}`}
-                onMouseDown={(e) => { e.preventDefault(); selectCommand(cmd.cmd) }}
+                onMouseDown={(e) => { e.preventDefault(); selectAutocompleteItem(item) }}
                 onMouseEnter={() => setActiveCmdIndex(i)}
               >
-                <span className="command-name">{cmd.cmd}</span>
-                <span className="command-desc">{t(`commands.${cmd.cmd}` as any, cmd.cmd)}</span>
+                <div className="command-copy">
+                  <span className="command-name">{item.primary}</span>
+                  <span className="command-desc">{item.secondary}</span>
+                </div>
+                <span className="command-kind">{item.kind === 'file' ? 'FILE' : 'CMD'}</span>
               </div>
             ))}
           </div>
@@ -800,129 +1238,155 @@ function TerminalPane({ processKey, project }: { processKey: string; project: st
 
 // ===== Message rendering =====
 
-function extractToolPairs(content: any[]): { toolUse: any; toolResult?: any }[] {
-  const toolUseBlocks = content.filter((b: any) => b.type === 'tool_use')
-  const toolResultBlocks = content.filter((b: any) => b.type === 'tool_result')
-  const resultMap = new Map<string, any>()
-  for (const r of toolResultBlocks) resultMap.set(r.tool_use_id, r)
-  return toolUseBlocks.map((tu: any) => ({ toolUse: tu, toolResult: resultMap.get(tu.id) }))
-}
-
-function getToolSummary(name: string, input: Record<string, unknown>): string {
-  switch (name) {
-    case 'Bash': return `$ ${input.command || ''}`
-    case 'Read': return `${input.file_path || ''}${input.offset ? `:${input.offset}-${input.limit ? Number(input.offset) + Number(input.limit) : ''}` : ''}`
-    case 'Write': return `${input.file_path || ''}`
-    case 'Edit': return `${input.file_path || ''}`
-    case 'Glob': return `${input.pattern || ''}`
-    case 'Grep': return `"${input.pattern || ''}" in ${input.glob || 'all files'}`
-    case 'Agent': return `${input.description || ''}`
-    case 'TaskCreate': case 'TaskUpdate': case 'TaskGet': case 'TaskList': return `${input.subject || input.taskId || ''}`
-    default: return ''
-  }
-}
-
-function getToolResultText(result: any): string {
-  if (!result) return ''
-  const content = result.content
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) return content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
-  return ''
-}
-
-function getToolIcon(name: string): string {
-  switch (name) {
-    case 'Bash': return '⌨'; case 'Read': return '📄'; case 'Write': return '✏'; case 'Edit': return '✎'
-    case 'Glob': return '🔍'; case 'Grep': return '🔍'; case 'Agent': return '⚙'; default: return '▸'
-  }
-}
-
-function MessageItem({ line, project, onViewInCode }: { line: JsonlLine; project: string; onViewInCode: (f: string, o: string, n: string) => void }) {
-  const role = line.message?.role || line.type
-  const content = line.message?.content
-  let textContent: string = ''
-  if (typeof content === 'string') textContent = content
-  else if (Array.isArray(content)) textContent = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n')
-
-  const toolPairs = Array.isArray(content) ? extractToolPairs(content) : []
-  const thinkingBlocks = Array.isArray(content) ? content.filter((b: any) => b.type === 'thinking') : []
-  if (!textContent.trim() && toolPairs.length === 0 && thinkingBlocks.length === 0) return null
-
+function MarkdownContent({ content }: { content: string }) {
   return (
-    <div className={`message message-${role}`}>
-      <div className={`message-role ${role === 'user' ? 'role-user' : 'role-assistant'}`}>
-        {role === 'user' ? 'You' : 'Claude'}
-      </div>
-      <div className="message-content">
-        {textContent.trim() && (
-          <div className="message-markdown">
-            <ReactMarkdown
-              components={{
-                a: ({ ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
-                code: ({ className, children, ...props }) => {
-                  const isBlock = Boolean(className)
-                  if (isBlock) {
-                    return (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    )
-                  }
-                  return (
-                    <code className="inline-code" {...props}>
-                      {children}
-                    </code>
-                  )
-                }
-              }}
-            >
-              {textContent}
-            </ReactMarkdown>
-          </div>
-        )}
-        {thinkingBlocks.map((block: any, i: number) => (
-          <details key={`think-${i}`} className="thinking-block">
-            <summary className="thinking-header">Thinking...</summary>
-            <div className="thinking-content">{block.thinking}</div>
-          </details>
-        ))}
-        {toolPairs.map((pair, i) => (
-          <ToolCall key={`tool-${i}`} name={pair.toolUse.name} input={pair.toolUse.input} result={pair.toolResult} project={project} onViewInCode={onViewInCode} />
-        ))}
-      </div>
+    <div className="message-markdown">
+      <ReactMarkdown components={MARKDOWN_COMPONENTS}>
+        {content}
+      </ReactMarkdown>
     </div>
   )
 }
 
-function ToolCall({ name, input, result, project, onViewInCode }: {
-  name: string; input: Record<string, unknown>; result?: any; project: string
-  onViewInCode: (filePath: string, oldContent: string, newContent: string) => void
+function TurnItem({ turn, onViewInCode }: {
+  turn: NormalizedTurn
+  onViewInCode: (f: string, o: string, n: string) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const summary = getToolSummary(name, input)
-  const resultText = getToolResultText(result)
-  const icon = getToolIcon(name)
-  const hasResult = resultText.length > 0
-  const isError = result?.is_error
-
-  const canViewCode = (name === 'Edit' && input.old_string != null) || (name === 'Write' && input.content != null)
+  const { t } = useTranslation()
+  const toolMap = useMemo(() => new Map(turn.toolCalls.map((tool) => [tool.id, tool])), [turn.toolCalls])
+  const durationLabel = formatTurnDuration(turn.durationMs)
 
   return (
-    <div className={`tool-call ${isError ? 'tool-error' : ''}`}>
+    <div className="turn-block">
+      {turn.userText.trim() && (
+        <div className="message message-user">
+          <div className="message-role role-user">{t('conversation.you')}</div>
+          <div className="message-content">
+            <MarkdownContent content={turn.userText} />
+          </div>
+        </div>
+      )}
+      {turn.pieces.length > 0 && (
+        <div className="message message-assistant">
+          <div className="message-role role-assistant">{t('conversation.claude')}</div>
+          <div className="message-content">
+            {turn.pieces.map((piece) => {
+              if (piece.kind === 'text' && piece.text) {
+                return <MarkdownContent key={piece.id} content={piece.text} />
+              }
+
+              if (piece.kind === 'thinking' && piece.text) {
+                return (
+                  <details key={piece.id} className="thinking-block">
+                    <summary className="thinking-header">{t('tools.thinking')}</summary>
+                    <div className="thinking-content">{piece.text}</div>
+                  </details>
+                )
+              }
+
+              if (piece.kind === 'tool' && piece.toolId) {
+                const tool = toolMap.get(piece.toolId)
+                if (!tool) return null
+                return <ToolCall key={piece.id} tool={tool} onViewInCode={onViewInCode} />
+              }
+
+              return null
+            })}
+          </div>
+        </div>
+      )}
+      {durationLabel && <div className="turn-duration">{durationLabel}</div>}
+    </div>
+  )
+}
+
+function PlanToolDetail({ tool }: { tool: NormalizedToolCall }) {
+  const plan = typeof tool.input.plan === 'string' ? tool.input.plan : ''
+  const allowedPrompts = Array.isArray(tool.input.allowedPrompts) ? tool.input.allowedPrompts as Array<Record<string, unknown>> : []
+  const options = Array.isArray(tool.input.options) ? tool.input.options as Array<Record<string, unknown>> : []
+  const subject = typeof tool.input.subject === 'string' ? tool.input.subject : ''
+  const description = typeof tool.input.description === 'string' ? tool.input.description : ''
+  const question = typeof tool.input.question === 'string'
+    ? tool.input.question
+    : typeof tool.input.prompt === 'string'
+      ? tool.input.prompt
+      : typeof tool.input.header === 'string'
+        ? tool.input.header
+        : ''
+  const status = typeof tool.input.status === 'string' ? tool.input.status : ''
+  const taskId = tool.input.taskId != null ? String(tool.input.taskId) : ''
+  const activeForm = typeof tool.input.activeForm === 'string' ? tool.input.activeForm : ''
+
+  return (
+    <div className="plan-call-body">
+      {(subject || question) && <div className="plan-call-title">{subject || question}</div>}
+      {description && <div className="plan-call-description">{description}</div>}
+      {(taskId || status || activeForm) && (
+        <div className="plan-chip-row">
+          {taskId && <span className="plan-chip">#{taskId}</span>}
+          {status && <span className="plan-chip">{status}</span>}
+          {activeForm && <span className="plan-chip">{activeForm}</span>}
+        </div>
+      )}
+      {plan && (
+        <div className="plan-call-plan">
+          <MarkdownContent content={plan} />
+        </div>
+      )}
+      {allowedPrompts.length > 0 && (
+        <div className="plan-allowed-actions">
+          {allowedPrompts.map((item, index) => (
+            <span key={`${tool.id}-allow-${index}`} className="plan-chip">
+              {item.tool ? `${String(item.tool)}: ` : ''}{String(item.prompt || '')}
+            </span>
+          ))}
+        </div>
+      )}
+      {options.length > 0 && (
+        <div className="plan-allowed-actions">
+          {options.map((item, index) => (
+            <span key={`${tool.id}-option-${index}`} className="plan-chip">
+              {String(item.label || item.prompt || item.description || '')}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ToolCall({ tool, onViewInCode }: {
+  tool: NormalizedToolCall
+  onViewInCode: (filePath: string, oldContent: string, newContent: string) => void
+}) {
+  const [expanded, setExpanded] = useState(tool.isPlanTool || tool.name === 'tool_result')
+  const summary = getToolSummary(tool.name, tool.input, tool.isPlanTool)
+  const resultText = getToolResultText(tool.result)
+  const icon = getToolIcon(tool.name, tool.isPlanTool)
+  const hasResult = resultText.length > 0
+  const isError = tool.result?.is_error
+  const isPending = !tool.result && tool.name !== 'tool_result'
+  const canViewCode = (tool.name === 'Edit' && tool.input.old_string != null) || (tool.name === 'Write' && tool.input.content != null)
+
+  return (
+    <div className={`tool-call ${tool.isPlanTool ? 'tool-call-plan' : ''} ${isError ? 'tool-error' : ''}`}>
       <div className="tool-call-header" onClick={() => setExpanded(!expanded)}>
         <span className="tool-icon">{icon}</span>
-        <span className="tool-name">{name}</span>
+        <span className="tool-name">{tool.name}</span>
         <span className="tool-summary">{summary}</span>
+        {tool.isPlanTool && <span className="tool-badge tool-badge-plan">PLAN</span>}
+        {isPending && <span className="tool-badge tool-badge-live">LIVE</span>}
+        {isError && <span className="tool-badge tool-badge-error">ERR</span>}
         {canViewCode && (
           <button
             className="tool-code-btn"
             title="View in Code tab"
             onMouseDown={(e) => {
               e.stopPropagation()
-              if (name === 'Edit') {
-                onViewInCode(input.file_path as string || '', input.old_string as string || '', input.new_string as string || '')
+              if (tool.name === 'Edit') {
+                onViewInCode(tool.input.file_path as string || '', tool.input.old_string as string || '', tool.input.new_string as string || '')
               } else {
-                onViewInCode(input.file_path as string || '', '', input.content as string || '')
+                onViewInCode(tool.input.file_path as string || '', '', tool.input.content as string || '')
               }
             }}
           >
@@ -933,16 +1397,22 @@ function ToolCall({ name, input, result, project, onViewInCode }: {
       </div>
       {expanded && (
         <div className="tool-call-detail">
-          {name === 'Bash' && input.command && <pre className="tool-command">{input.command as string}</pre>}
-          {name === 'Edit' && input.old_string && (
-            <div className="tool-edit">
-              <div className="tool-edit-label">Replace:</div>
-              <pre className="tool-code">{(input.old_string as string).slice(0, 500)}</pre>
-              <div className="tool-edit-label">With:</div>
-              <pre className="tool-code">{(input.new_string as string).slice(0, 500)}</pre>
-            </div>
+          {tool.isPlanTool ? (
+            <PlanToolDetail tool={tool} />
+          ) : (
+            <>
+              {tool.name === 'Bash' && tool.input.command && <pre className="tool-command">{tool.input.command as string}</pre>}
+              {tool.name === 'Edit' && tool.input.old_string && (
+                <div className="tool-edit">
+                  <div className="tool-edit-label">Replace:</div>
+                  <pre className="tool-code">{(tool.input.old_string as string).slice(0, 500)}</pre>
+                  <div className="tool-edit-label">With:</div>
+                  <pre className="tool-code">{(tool.input.new_string as string).slice(0, 500)}</pre>
+                </div>
+              )}
+              {tool.name === 'Write' && tool.input.content && <pre className="tool-code">{(tool.input.content as string).slice(0, 500)}</pre>}
+            </>
           )}
-          {name === 'Write' && input.content && <pre className="tool-code">{(input.content as string).slice(0, 500)}</pre>}
         </div>
       )}
       {hasResult && (
@@ -952,6 +1422,49 @@ function ToolCall({ name, input, result, project, onViewInCode }: {
       )}
     </div>
   )
+}
+
+function getToolResultText(result: ToolResultBlock | null | undefined): string {
+  if (!result) return ''
+  const content = result.content
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) return content.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
+  return ''
+}
+
+function getToolIcon(name: string, isPlanCard = false): string {
+  if (isPlanCard) return '◈'
+  switch (name) {
+    case 'Bash': return '⌨'
+    case 'Read': return '📄'
+    case 'Write': return '✏'
+    case 'Edit': return '✎'
+    case 'Glob': return '◌'
+    case 'Grep': return '🔍'
+    case 'Agent': return '⚙'
+    case 'tool_result': return '↩'
+    default: return '▸'
+  }
+}
+
+function getToolSummary(name: string, input: Record<string, unknown>, isPlanCard = false): string {
+  switch (name) {
+    case 'Bash': return `$ ${input.command || ''}`
+    case 'Read': return `${input.file_path || ''}${input.offset ? `:${input.offset}-${input.limit ? Number(input.offset) + Number(input.limit) : ''}` : ''}`
+    case 'Write': return `${input.file_path || ''}`
+    case 'Edit': return `${input.file_path || ''}`
+    case 'Glob': return `${input.pattern || ''}`
+    case 'Grep': return `"${input.pattern || ''}" in ${input.glob || 'all files'}`
+    case 'Agent': return `${input.description || ''}`
+    case 'TaskCreate': return `${input.subject || input.activeForm || input.description || ''}`
+    case 'TaskUpdate': return `${input.taskId ? `#${input.taskId}` : ''}${input.status ? ` → ${input.status}` : ''}`
+    case 'TaskGet': return input.taskId ? `#${input.taskId}` : ''
+    case 'TaskList': return '任务列表'
+    case 'AskUserQuestion': return `${input.question || input.prompt || input.header || ''}`
+    case 'ExitPlanMode': return typeof input.plan === 'string' ? '计划已生成，等待继续执行' : '计划已生成'
+    case 'tool_result': return '工具返回结果'
+    default: return isPlanCard ? '计划步骤' : ''
+  }
 }
 
 // ===== Input Toolbar (Model + Effort selectors) =====

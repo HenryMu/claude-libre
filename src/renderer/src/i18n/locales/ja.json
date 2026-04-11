@@ -36,6 +36,9 @@
     "inputPlaceholderOffline": "接続して入力を開始...",
     "send": "送信",
     "thinking": "Claude が考えています...",
+    "runningTools": "Claude がツールを実行中...",
+    "planning": "Claude が計画中...",
+    "waitingPermission": "権限の確認待ち...",
     "you": "あなた",
     "claude": "Claude"
   },

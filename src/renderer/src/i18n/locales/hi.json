@@ -36,6 +36,9 @@
     "inputPlaceholderOffline": "कनेक्ट होने के बाद टाइप करें...",
     "send": "भेजें",
     "thinking": "Claude सोच रहा है...",
+    "runningTools": "Claude टूल चला रहा है...",
+    "planning": "Claude योजना बना रहा है...",
+    "waitingPermission": "अनुमति पुष्टि की प्रतीक्षा...",
     "you": "आप",
     "claude": "Claude"
   },

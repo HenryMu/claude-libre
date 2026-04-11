@@ -36,6 +36,9 @@
     "inputPlaceholderOffline": "連線後開始輸入...",
     "send": "發送",
     "thinking": "Claude 正在思考...",
+    "runningTools": "Claude 正在執行工具...",
+    "planning": "Claude 正在規劃...",
+    "waitingPermission": "等待權限確認...",
     "you": "你",
     "claude": "Claude"
   },

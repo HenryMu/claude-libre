@@ -40,7 +40,18 @@
       "Bash(npm run:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(taskkill /f /im electron.exe)"
+      "Bash(taskkill /f /im electron.exe)",
+      "Bash(find:*)",
+      "Bash(otool -L node_modules/node-pty/build/Release/pty.node)",
+      "Bash(npm rebuild:*)",
+      "Bash(codesign:*)",
+      "Bash(npm view:*)",
+      "Bash(npx tsc:*)",
+      "WebSearch",
+      "mcp__fetch__fetch",
+      "Bash(ls -la /Users/ze/code/claude-code-desktop/logo*)",
+      "Bash(sips -g all /Users/ze/code/claude-code-desktop/logo.icns)",
+      "Bash(pip3 install:*)"
     ]
   }
 }

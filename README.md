@@ -1,4 +1,4 @@
-# Claude Code Desktop
+# Claude Libre
 
 **[English](./README.md)** | **[中文](./README.zh-CN.md)** | **[日本語](./README.ja.md)** | **[한국어](./README.ko.md)**
 
@@ -39,13 +39,13 @@ Claude Code is an incredibly powerful CLI tool — but not everyone lives in the
 
 As developers, we wanted a more visual way to manage multiple sessions, browse conversation history, and keep an overview of our projects. Switching between terminal tabs and scrolling through long outputs gets old fast.
 
-So we built Claude Code Desktop — a free, open-source GUI that wraps the Claude Code CLI you already know and love. No subscription needed beyond your Claude Code CLI access. Just install, connect, and go.
+So we built Claude Libre — a free, open-source GUI that wraps the Claude Code CLI you already know and love. No subscription needed beyond your Claude Code CLI access. Just install, connect, and go.
 
 **The goal is simple:** make Claude Code more accessible and productive for everyone, while keeping it 100% free and open source.
 
 ## How Is This Different from Claude Desktop?
 
-| | Claude Desktop (Official by Anthropic) | Claude Code Desktop (This Project) |
+| | Claude Desktop (Official by Anthropic) | Claude Libre (This Project) |
 |---|---|---|
 | **Type** | Official Anthropic product | Third-party community project |
 | **Cost** | Requires Claude Pro / Max subscription | **Free & Open Source** (MIT License) |
@@ -66,8 +66,8 @@ Both are great tools — they just serve different needs. If you want a polished
 ### Install
 
 ```bash
-git clone https://github.com/HenryMu/Claude-Code-GUI.git
-cd Claude-Code-GUI
+git clone https://github.com/HenryMu/claude-libre.git
+cd claude-libre
 npm install
 ```
 

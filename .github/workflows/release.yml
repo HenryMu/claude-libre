@@ -19,7 +19,6 @@ jobs:
         include:
           - os: macos-latest
           - os: windows-latest
-          - os: ubuntu-latest
 
     runs-on: ${{ matrix.os }}
 
@@ -31,12 +30,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libarchive-tools libglib2.0-dev
 
       - name: Install npm dependencies
         run: npm install

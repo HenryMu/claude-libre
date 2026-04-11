@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Claude Code GUI</title>
+    <title>Claude Libre</title>
     <script>
       (() => {
-        const stored = localStorage.getItem('CC-GUI-theme')
+        const stored = localStorage.getItem('claude-libre-theme')
         const preference = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
         const resolved = preference === 'system'
           ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')

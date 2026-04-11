@@ -11,7 +11,7 @@ let sessionWatcher: SessionWatcher | null = null
 let claudeManager: ClaudeManager | null = null
 let tray: Tray | null = null
 
-const REPO_URL = 'https://github.com/HenryMu/Claude-Code-GUI'
+const REPO_URL = 'https://github.com/HenryMu/claude-libre'
 
 const trayI18n: Record<string, { toggle: string; about: string; quit: string }> = {
   en: { toggle: 'Show / Hide', about: 'About', quit: 'Quit' },
@@ -78,7 +78,7 @@ function createTray(): void {
   const iconPath = getIconPath('logo.png')
   const icon = nativeImage.createFromPath(iconPath)
   tray = new Tray(icon.resize({ width: 16, height: 16 }))
-  tray.setToolTip('Claude Code GUI')
+  tray.setToolTip('Claude Libre')
   tray.setContextMenu(buildTrayMenu())
 
   // Double-click tray icon to toggle window
@@ -105,7 +105,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false
     },
-    title: 'Claude Code GUI',
+    title: 'Claude Libre',
     backgroundColor: '#1e1e2e',
     show: false
   })
@@ -181,7 +181,7 @@ function createWindow(): void {
 }
 
 // Set app name before ready so macOS menu bar shows correct name in dev mode
-app.setName('Claude Code GUI')
+app.setName('Claude Libre')
 
 app.whenReady().then(() => {
   // Single instance lock

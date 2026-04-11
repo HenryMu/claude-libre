@@ -49,8 +49,8 @@
       "Bash(npx tsc:*)",
       "WebSearch",
       "mcp__fetch__fetch",
-      "Bash(ls -la /Users/ze/code/claude-code-desktop/logo*)",
-      "Bash(sips -g all /Users/ze/code/claude-code-desktop/logo.icns)",
+      "Bash(ls -la /Users/ze/code/Claude-Code-GUI/logo*)",
+      "Bash(sips -g all /Users/ze/code/Claude-Code-GUI/logo.icns)",
       "Bash(pip3 install:*)"
     ]
   }

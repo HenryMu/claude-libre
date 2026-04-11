@@ -1,6 +1,6 @@
 {
-  "name": "claude-code-gui",
-  "version": "1.0.4",
+  "name": "claude-libre",
+  "version": "1.0.5",
   "description": "Claude Code session manager desktop app",
   "main": "./out/main/index.js",
   "scripts": {
@@ -13,7 +13,7 @@
   },
   "build": {
     "appId": "com.claudedesktop.app",
-    "productName": "Claude Code GUI",
+    "productName": "Claude Libre",
     "files": [
       "out/**/*",
       "logo.png"
@@ -42,7 +42,7 @@
     "publish": {
       "provider": "github",
       "owner": "HenryMu",
-      "repo": "Claude-Code-GUI"
+      "repo": "claude-libre"
     },
     "mac": {
       "icon": "logo.icns",

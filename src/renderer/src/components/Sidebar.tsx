@@ -135,7 +135,7 @@ export default function Sidebar({
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <h2>CC-GUI</h2>
+        <h2>Claude Libre</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ThemeSwitch />
           <LangSwitch />

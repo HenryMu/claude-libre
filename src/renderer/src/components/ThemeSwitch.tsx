@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 type ThemePreference = 'system' | 'light' | 'dark'
 type ResolvedTheme = 'light' | 'dark'
 
-const STORAGE_KEY = 'CC-GUI-theme'
+const STORAGE_KEY = 'claude-libre-theme'
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; icon: string }> = [
   { value: 'system', icon: '◐' },

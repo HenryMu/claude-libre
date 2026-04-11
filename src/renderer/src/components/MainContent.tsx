@@ -722,7 +722,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const successMsgRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const turns = useMemo(() => normalizeSessionLines(sessionDetails?.lines || []), [sessionDetails?.lines])
   const conversationState = useMemo(
     () => deriveConversationState({
@@ -739,6 +739,15 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [turns, conversationState, systemSuccessMsg])
+
+  useEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+
+    input.style.height = '0px'
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`
+    input.style.overflowY = input.scrollHeight > 160 ? 'auto' : 'hidden'
+  }, [inputValue])
 
   // Reset on session change
   useEffect(() => {
@@ -1139,16 +1148,16 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
       {/* Input bar */}
       <div className="input-bar">
-        <input ref={inputRef} type="text" className="chat-input"
+        <textarea ref={inputRef} className="chat-input" rows={1}
           placeholder={isConnected ? t('conversation.inputPlaceholder') : t('conversation.inputPlaceholderOffline')}
           value={inputValue}
           onChange={(e) => {
             setInputValue(e.target.value)
             setCaretIndex(e.target.selectionStart ?? e.target.value.length)
           }}
-          onClick={(e) => setCaretIndex((e.target as HTMLInputElement).selectionStart ?? inputValue.length)}
-          onKeyUp={(e) => setCaretIndex((e.currentTarget as HTMLInputElement).selectionStart ?? inputValue.length)}
-          onSelect={(e) => setCaretIndex((e.currentTarget as HTMLInputElement).selectionStart ?? inputValue.length)}
+          onClick={(e) => setCaretIndex((e.target as HTMLTextAreaElement).selectionStart ?? inputValue.length)}
+          onKeyUp={(e) => setCaretIndex((e.currentTarget as HTMLTextAreaElement).selectionStart ?? inputValue.length)}
+          onSelect={(e) => setCaretIndex((e.currentTarget as HTMLTextAreaElement).selectionStart ?? inputValue.length)}
           onKeyDown={(e) => {
             if (autocompleteMode && autocompleteItems.length > 0) {
               if (e.key === 'ArrowDown') { e.preventDefault(); setActiveCmdIndex(i => (i + 1) % autocompleteItems.length); return }

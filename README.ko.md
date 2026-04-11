@@ -93,7 +93,7 @@ npm run build
 또는 터미널에서 실행:
 
 ```bash
-xattr -cr /Applications/Claude\ Code\ Desktop.app
+xattr -cr /Applications/Claude\ Libre.app
 ```
 
 ## 아키텍처

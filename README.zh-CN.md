@@ -93,7 +93,7 @@ npm run build
 或在终端中执行：
 
 ```bash
-xattr -cr /Applications/Claude\ Code\ Desktop.app
+xattr -cr /Applications/Claude\ Libre.app
 ```
 
 ## 架构

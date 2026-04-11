@@ -177,6 +177,18 @@ export interface ActiveProcess {
   cwd: string
 }
 
+export interface ImageAttachment {
+  path: string
+  name: string
+  dataUrl: string
+}
+
+export interface SubmitMessageRequest {
+  processKey: string
+  text: string
+  images: ImageAttachment[]
+}
+
 export interface PermissionOptionPayload {
   label: string
   value: string
@@ -229,6 +241,7 @@ export interface ElectronAPI {
   ptyWrite: (processKey: string, data: string) => void
   ptyResize: (processKey: string, cols: number, rows: number) => void
   respondPermission: (processKey: string, response: string) => void
+  submitMessage: (request: SubmitMessageRequest) => Promise<void>
 
   // Queries
   getSessionDetails: (projectSanitizedName: string, sessionId: string) => Promise<SessionDetailsPayload>
@@ -255,4 +268,7 @@ export interface ElectronAPI {
   // File browsing
   readDir: (dirPath: string) => Promise<FileNode[]>
   readFile: (filePath: string) => Promise<string>
+
+  // Image upload
+  selectImages: () => Promise<ImageAttachment[]>
 }

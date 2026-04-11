@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useTranslation } from 'react-i18next'
-import type { SessionMeta, ActiveProcess, JsonlLine, SessionDetailsPayload, FileNode, CodeViewContext, ToolResultBlock, ToolUseBlock, ContentBlock, PermissionPromptPayload } from '../../../shared/types'
+import type { SessionMeta, ActiveProcess, JsonlLine, SessionDetailsPayload, FileNode, CodeViewContext, ToolResultBlock, ToolUseBlock, ContentBlock, PermissionPromptPayload, ImageAttachment } from '../../../shared/types'
 import type { TabType } from '../App'
 import type { ConnectionInfo } from '../hooks/useClaudeManager'
 
@@ -175,6 +175,27 @@ function flattenFileNodes(nodes: FileNode[], basePath: string): FileMentionItem[
 
   walk(nodes)
   return result
+}
+
+function normalizePathForPrompt(filePath: string): string {
+  return filePath.replace(/\\/g, '/')
+}
+
+function toMentionPath(filePath: string, projectRoot: string): string {
+  const normalizedFile = normalizePathForPrompt(filePath)
+  const normalizedRoot = normalizePathForPrompt(projectRoot).replace(/\/$/, '')
+  if (normalizedFile.startsWith(`${normalizedRoot}/`)) {
+    return normalizedFile.slice(normalizedRoot.length + 1)
+  }
+  return normalizedFile
+}
+
+function escapeMentionPath(filePath: string): string {
+  return filePath.replace(/\\/g, '\\\\').replace(/([\s"'])/g, '\\$1')
+}
+
+function formatMentionToken(filePath: string, projectRoot: string): string {
+  return `@${escapeMentionPath(toMentionPath(filePath, projectRoot))}`
 }
 
 function scoreFileMention(item: FileMentionItem, query: string): number {
@@ -696,6 +717,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const [currentEffort, setCurrentEffort] = useState<string>('medium')
   const [connectError, setConnectError] = useState<string | null>(null)
   const [fileMentions, setFileMentions] = useState<FileMentionItem[]>([])
+  const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([])
   const [caretIndex, setCaretIndex] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -858,9 +880,32 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   }
 
   // Send message
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = inputValue.trim()
-    if (!text || !processKey) return
+    if ((!text && pendingImages.length === 0) || !processKey) return
+
+    setConnectError(null)
+
+    if (pendingImages.length > 0) {
+      try {
+        await window.electronAPI.submitMessage({
+          processKey,
+          text,
+          images: pendingImages
+        })
+        setInputValue('')
+        setPendingImages([])
+        setCaretIndex(0)
+        setOptimisticThinking(true)
+        setSystemSuccessMsg(null)
+        if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '图片发送失败'
+        setConnectError(message)
+      }
+      return
+    }
+
     window.electronAPI.ptyWrite(processKey, text + '\r')
     setInputValue('')
     setCaretIndex(0)
@@ -1132,9 +1177,27 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
             ))}
           </div>
         )}
-        <button className="btn" onClick={handleSend} disabled={!inputValue.trim() || !isConnected}>{t('conversation.send')}</button>
+        <button className="btn" onClick={handleSend} disabled={(!inputValue.trim() && pendingImages.length === 0) || !isConnected}>{t('conversation.send')}</button>
+        <button className="upload-btn" onClick={async () => {
+          const imgs = await window.electronAPI.selectImages()
+          if (imgs.length > 0) setPendingImages(prev => [...prev, ...imgs])
+        }} disabled={!isConnected} title={t('conversation.uploadImage')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        </button>
         <InputToolbar processKey={processKey} isConnected={isConnected} t={t} currentModel={currentModel} currentEffort={currentEffort} />
       </div>
+      {/* Image preview strip */}
+      {pendingImages.length > 0 && (
+        <div className="image-preview-strip">
+          {pendingImages.map((img, i) => (
+            <div key={i} className="image-preview-item">
+              <img src={img.dataUrl} alt={img.name} />
+              <button className="image-preview-remove" onClick={() => setPendingImages(prev => prev.filter((_, idx) => idx !== i))}>✕</button>
+              <span className="image-preview-name">{img.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

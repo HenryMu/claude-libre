@@ -5,7 +5,7 @@ import { SessionWatcher } from './session-watcher'
 import { ClaudeManager } from './claude-manager'
 import { readClaudeConfig, writeClaudeConfig, readConfigFile, writeConfigFile, listProfiles, saveProfile, deleteProfile } from './config-manager'
 import { sanitizePath } from './path-utils'
-import type { ClaudeConfig, ProfileData, FileNode } from '../shared/types'
+import type { ClaudeConfig, ProfileData, FileNode, ImageAttachment, SubmitMessageRequest } from '../shared/types'
 
 const SKIP_NAMES = new Set([
   'node_modules', '.git', '.svn', '__pycache__', '.next', 'dist', 'out', 'build',
@@ -78,6 +78,10 @@ export function registerIpcHandlers(
 
   ipcMain.on('permission-respond', (_, processKey: string, response: string) => {
     claudeManager.respondPermission(processKey, response)
+  })
+
+  ipcMain.handle('submit-message', async (_, request: SubmitMessageRequest) => {
+    await claudeManager.submitMessage(request)
   })
 
   // ===== Session data queries =====
@@ -171,5 +175,27 @@ export function registerIpcHandlers(
     } catch (e: any) {
       return `[Error reading file: ${e.message}]`
     }
+  })
+
+  // ===== Image upload =====
+
+  ipcMain.handle('select-images', async (): Promise<ImageAttachment[]> => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) return []
+
+    return result.filePaths.map(filePath => {
+      const data = fs.readFileSync(filePath)
+      const ext = path.extname(filePath).slice(1).toLowerCase()
+      const mime = ext === 'jpg' ? 'jpeg' : ext
+      return {
+        path: filePath,
+        name: path.basename(filePath),
+        dataUrl: `data:image/${mime};base64,${data.toString('base64')}`
+      }
+    })
   })
 }

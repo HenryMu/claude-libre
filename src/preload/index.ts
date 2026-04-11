@@ -83,6 +83,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.send('pty-resize', processKey, cols, rows),
   respondPermission: (processKey, response) =>
     ipcRenderer.send('permission-respond', processKey, response),
+  submitMessage: (request) =>
+    ipcRenderer.invoke('submit-message', request),
 
   // Queries
   getSessionDetails: (projectSanitizedName, sessionId) =>
@@ -111,7 +113,10 @@ const electronAPI: ElectronAPI = {
 
   // File browsing
   readDir: (dirPath) => ipcRenderer.invoke('read-dir', dirPath),
-  readFile: (filePath) => ipcRenderer.invoke('read-file', filePath)
+  readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+
+  // Image upload
+  selectImages: () => ipcRenderer.invoke('select-images')
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

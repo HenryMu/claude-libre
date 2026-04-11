@@ -1,10 +1,13 @@
 import { BrowserWindow } from 'electron'
-import { execFileSync } from 'child_process'
+import { ChildProcessWithoutNullStreams, execFileSync, spawn } from 'child_process'
+import { randomUUID } from 'crypto'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import readline from 'readline'
 import pty, { IPty } from 'node-pty'
 import { unsanitizePath } from './path-utils'
+import type { ImageAttachment, SubmitMessageRequest } from '../shared/types'
 
 interface ProcessEntry {
   pty: IPty
@@ -18,10 +21,21 @@ interface ProcessEntry {
 }
 
 interface PendingPermission {
+  source: 'pty' | 'stream-json'
   prompt: string
   timestamp: number
   timer: ReturnType<typeof setTimeout>
   options?: Array<{ label: string; value: string; kind?: 'allow' | 'deny' | 'secondary' }>
+  requestId?: string
+  toolUseId?: string
+}
+
+interface SidecarSubmission {
+  child: ChildProcessWithoutNullStreams
+  stderr: string[]
+  resultSeen: boolean
+  resolve: () => void
+  reject: (error: Error) => void
 }
 
 interface ParsedPermissionPrompt {
@@ -69,6 +83,7 @@ export class ClaudeManager {
   private ptyBuffers: Map<string, string> = new Map()
   private workspaceTrustBuffers: Map<string, string> = new Map()
   private pendingPermissions: Map<string, PendingPermission> = new Map()
+  private sidecarSubmissions: Map<string, SidecarSubmission> = new Map()
   private responseConfirm: Map<string, {
     strategyIndex: number
     response: string
@@ -191,6 +206,7 @@ export class ClaudeManager {
     }, PERMISSION_TIMEOUT_MS)
 
     this.pendingPermissions.set(processKey, {
+      source: 'pty',
       prompt: promptText,
       timestamp: Date.now(),
       timer,
@@ -203,6 +219,314 @@ export class ClaudeManager {
       prompt: promptText,
       timeout: PERMISSION_TIMEOUT_MS,
       options
+    })
+  }
+
+  private emitStructuredPermissionPrompt(
+    processKey: string,
+    promptText: string,
+    requestId: string,
+    toolUseId?: string
+  ): void {
+    const entry = this.processes.get(processKey)
+    const project = entry?.projectSanitizedName || ''
+
+    const timer = setTimeout(() => {
+      const pending = this.pendingPermissions.get(processKey)
+      if (pending?.source !== 'stream-json') return
+      this.pendingPermissions.delete(processKey)
+      this.send('permission-clear', { processKey })
+      this.respondToStructuredPermission(processKey, pending, 'deny')
+    }, PERMISSION_TIMEOUT_MS)
+
+    this.pendingPermissions.set(processKey, {
+      source: 'stream-json',
+      prompt: promptText,
+      timestamp: Date.now(),
+      timer,
+      requestId,
+      toolUseId,
+      options: [
+        { label: 'Yes', value: '1', kind: 'allow' },
+        { label: 'No', value: '2', kind: 'deny' },
+      ]
+    })
+
+    this.send('permission-prompt', {
+      processKey,
+      projectSanitizedName: project,
+      prompt: promptText,
+      timeout: PERMISSION_TIMEOUT_MS,
+      options: [
+        { label: 'Yes', value: '1', kind: 'allow' },
+        { label: 'No', value: '2', kind: 'deny' },
+      ]
+    })
+  }
+
+  private summarizeToolInput(input: unknown): string | null {
+    if (!input || typeof input !== 'object') return null
+
+    const toolInput = input as Record<string, unknown>
+    if (typeof toolInput.command === 'string' && toolInput.command.trim()) {
+      return toolInput.command.trim()
+    }
+    if (typeof toolInput.file_path === 'string' && toolInput.file_path.trim()) {
+      return toolInput.file_path.trim()
+    }
+
+    const serialized = JSON.stringify(toolInput)
+    if (!serialized || serialized === '{}') return null
+    return serialized.length > 160 ? `${serialized.slice(0, 157)}...` : serialized
+  }
+
+  private buildStructuredPermissionPrompt(payload: Record<string, unknown>): {
+    prompt: string
+    requestId: string
+    toolUseId?: string
+  } | null {
+    const requestId = typeof payload.request_id === 'string' ? payload.request_id : null
+    const request = payload.request
+
+    if (!requestId || !request || typeof request !== 'object') return null
+
+    const requestBody = request as Record<string, unknown>
+    if (requestBody.subtype !== 'can_use_tool') return null
+
+    const toolName = typeof requestBody.tool_name === 'string' ? requestBody.tool_name : 'Tool'
+    const toolUseId = typeof requestBody.tool_use_id === 'string'
+      ? requestBody.tool_use_id
+      : (typeof requestBody.toolUseID === 'string' ? requestBody.toolUseID : undefined)
+    const detail = this.summarizeToolInput(requestBody.tool_input)
+
+    return {
+      prompt: detail
+        ? `允许 ${toolName} 执行：${detail}`
+        : `允许 ${toolName} 继续执行吗？`,
+      requestId,
+      toolUseId
+    }
+  }
+
+  private parseImageDataUrl(dataUrl: string): { mediaType: string; data: string } {
+    const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
+    if (!match) {
+      throw new Error('图片数据格式无效')
+    }
+
+    return {
+      mediaType: match[1],
+      data: match[2]
+    }
+  }
+
+  private buildStructuredMessageContent(text: string, images: ImageAttachment[]): Array<Record<string, unknown>> {
+    const blocks: Array<Record<string, unknown>> = []
+    const trimmed = text.trim()
+
+    if (trimmed) {
+      blocks.push({
+        type: 'text',
+        text: trimmed
+      })
+    }
+
+    for (const image of images) {
+      const parsed = this.parseImageDataUrl(image.dataUrl)
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: parsed.mediaType,
+          data: parsed.data
+        }
+      })
+    }
+
+    return blocks
+  }
+
+  private writeStructuredLine(child: ChildProcessWithoutNullStreams, payload: Record<string, unknown>): void {
+    child.stdin.write(`${JSON.stringify(payload)}\n`)
+  }
+
+  private respondToStructuredPermission(processKey: string, pending: PendingPermission, response: string): void {
+    const submission = this.sidecarSubmissions.get(processKey)
+    if (!submission) {
+      this.send('permission-clear', { processKey })
+      return
+    }
+
+    const normalized = response.trim().toLowerCase()
+    const matchedOption = pending.options?.find((option) => option.value.toLowerCase() === normalized)
+    const shouldDeny = matchedOption?.kind === 'deny' || ['n', 'no', '2', 'deny'].includes(normalized)
+
+    this.writeStructuredLine(submission.child, {
+      type: 'control_response',
+      response: {
+        subtype: 'success',
+        request_id: pending.requestId,
+        response: shouldDeny
+          ? {
+            behavior: 'deny',
+            message: 'Permission denied by user',
+            ...(pending.toolUseId ? { toolUseID: pending.toolUseId } : {})
+          }
+          : {
+            behavior: 'allow',
+            updatedInput: {},
+            ...(pending.toolUseId ? { toolUseID: pending.toolUseId } : {})
+          }
+      }
+    })
+  }
+
+  private handleSidecarLine(processKey: string, line: string): void {
+    const submission = this.sidecarSubmissions.get(processKey)
+    if (!submission) return
+
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(line) as Record<string, unknown>
+    } catch {
+      return
+    }
+
+    const type = typeof parsed.type === 'string' ? parsed.type : ''
+
+    if (type === 'control_request') {
+      const permission = this.buildStructuredPermissionPrompt(parsed)
+      if (permission) {
+        this.emitStructuredPermissionPrompt(processKey, permission.prompt, permission.requestId, permission.toolUseId)
+      }
+      return
+    }
+
+    if (type === 'result') {
+      submission.resultSeen = true
+      if (!submission.child.stdin.destroyed && !submission.child.stdin.writableEnded) {
+        submission.child.stdin.end()
+      }
+    }
+  }
+
+  private cleanupSidecarSubmission(processKey: string, killChild = false): void {
+    const submission = this.sidecarSubmissions.get(processKey)
+    if (!submission) return
+    this.sidecarSubmissions.delete(processKey)
+
+    if (killChild && !submission.child.killed) {
+      try {
+        submission.child.kill()
+      } catch {}
+    }
+
+    const pending = this.pendingPermissions.get(processKey)
+    if (pending?.source === 'stream-json') {
+      clearTimeout(pending.timer)
+      this.pendingPermissions.delete(processKey)
+      this.send('permission-clear', { processKey })
+    }
+  }
+
+  async submitMessage(request: SubmitMessageRequest): Promise<void> {
+    const entry = this.processes.get(request.processKey)
+    if (!entry || entry.status !== 'running') {
+      throw new Error('当前会话未连接，无法发送图片消息')
+    }
+
+    if (this.sidecarSubmissions.has(request.processKey)) {
+      throw new Error('上一条图片消息仍在处理中，请稍后再试')
+    }
+
+    const content = this.buildStructuredMessageContent(request.text, request.images)
+    if (content.length === 0) {
+      throw new Error('消息内容为空')
+    }
+
+    const spawnEnv = {
+      ...this.getSpawnEnv(),
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor'
+    } as Record<string, string>
+
+    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json']
+    if (entry.sessionId) {
+      args.push('--resume', entry.sessionId)
+    }
+
+    let child: ChildProcessWithoutNullStreams
+    if (process.platform === 'win32') {
+      const shell = process.env.COMSPEC || 'cmd.exe'
+      child = spawn(shell, ['/d', '/s', '/c', `claude ${args.join(' ')}`], {
+        cwd: entry.cwd,
+        env: spawnEnv,
+        stdio: 'pipe',
+        windowsHide: true
+      })
+    } else {
+      const claudeExecutable = this.resolveClaudeExecutable(spawnEnv)
+      child = spawn(claudeExecutable, args, {
+        cwd: entry.cwd,
+        env: spawnEnv,
+        stdio: 'pipe'
+      })
+    }
+
+    return new Promise((resolve, reject) => {
+      const submission: SidecarSubmission = {
+        child,
+        stderr: [],
+        resultSeen: false,
+        resolve,
+        reject
+      }
+
+      this.sidecarSubmissions.set(request.processKey, submission)
+
+      const stdoutReader = readline.createInterface({ input: child.stdout })
+
+      stdoutReader.on('line', (line) => {
+        this.handleSidecarLine(request.processKey, line)
+      })
+
+      child.stderr.on('data', (chunk: Buffer | string) => {
+        const text = chunk.toString()
+        if (!text.trim()) return
+        submission.stderr.push(text)
+        if (submission.stderr.length > 20) {
+          submission.stderr = submission.stderr.slice(-20)
+        }
+      })
+
+      child.on('error', (error) => {
+        stdoutReader.close()
+        this.cleanupSidecarSubmission(request.processKey)
+        reject(error)
+      })
+
+      child.on('close', (code) => {
+        stdoutReader.close()
+        const stderrText = submission.stderr.join('').trim()
+        this.cleanupSidecarSubmission(request.processKey)
+
+        if (code === 0) {
+          resolve()
+          return
+        }
+
+        reject(new Error(stderrText || `图片消息发送失败（退出码 ${code ?? 'unknown'}）`))
+      })
+
+      this.writeStructuredLine(child, {
+        type: 'user',
+        uuid: randomUUID(),
+        parent_tool_use_id: null,
+        message: {
+          role: 'user',
+          content
+        }
+      })
     })
   }
 
@@ -280,7 +604,15 @@ export class ClaudeManager {
 
   respondPermission(processKey: string, response: string): void {
     const pending = this.pendingPermissions.get(processKey)
-    if (pending) { clearTimeout(pending.timer); this.pendingPermissions.delete(processKey) }
+    if (pending) {
+      clearTimeout(pending.timer)
+      this.pendingPermissions.delete(processKey)
+      if (pending.source === 'stream-json') {
+        this.respondToStructuredPermission(processKey, pending, response)
+        this.send('permission-clear', { processKey })
+        return
+      }
+    }
     const existing = this.responseConfirm.get(processKey)
     if (existing) { clearTimeout(existing.timer); this.responseConfirm.delete(processKey) }
 
@@ -632,6 +964,7 @@ export class ClaudeManager {
     this.ptyBuffers.delete(processKey)
     this.workspaceTrustBuffers.delete(processKey)
     this.workspaceTrustAttempts.delete(processKey)
+    this.cleanupSidecarSubmission(processKey, true)
   }
 
   write(processKey: string, data: string): void {
@@ -678,6 +1011,9 @@ export class ClaudeManager {
     this.ptyBuffers.clear()
     this.workspaceTrustBuffers.clear()
     this.workspaceTrustAttempts.clear()
+    for (const [processKey] of this.sidecarSubmissions) {
+      this.cleanupSidecarSubmission(processKey, true)
+    }
     this.resolvedShellEnv = null
     this.resolvedClaudePath = null
   }

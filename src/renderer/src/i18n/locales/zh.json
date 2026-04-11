@@ -54,6 +54,7 @@
     "inputPlaceholder": "输入消息，按 Enter 发送...",
     "inputPlaceholderOffline": "连接后开始输入...",
     "send": "发送",
+    "uploadImage": "上传图片",
     "thinking": "Claude 正在思考...",
     "runningTools": "Claude 正在执行工具...",
     "planning": "Claude 正在规划...",

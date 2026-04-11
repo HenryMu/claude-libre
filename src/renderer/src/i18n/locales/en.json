@@ -83,6 +83,12 @@
     "switch": "中文",
     "label": "Language"
   },
+  "theme": {
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark",
+    "resolved": "Current: {{theme}}"
+  },
   "settings": {
     "title": "Settings",
     "configEditor": "Config Editor",

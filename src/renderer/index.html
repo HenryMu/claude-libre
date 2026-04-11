@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Claude Code Desktop</title>
+    <script>
+      (() => {
+        const stored = localStorage.getItem('cc-desktop-theme')
+        const preference = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+        const resolved = preference === 'system'
+          ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          : preference
+        document.documentElement.dataset.theme = resolved
+        document.documentElement.dataset.themePreference = preference
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

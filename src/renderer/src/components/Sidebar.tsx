@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { SessionMeta, ActiveProcess } from '../../../shared/types'
 import type { ConnectionInfo } from '../hooks/useClaudeManager'
 import LangSwitch from './LangSwitch'
+import ThemeSwitch from './ThemeSwitch'
 
 interface ProjectData {
   sanitizedName: string
@@ -136,6 +137,7 @@ export default function Sidebar({
       <div className="sidebar-header">
         <h2>CC-Desktop</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ThemeSwitch />
           <LangSwitch />
           <button className="settings-btn" onClick={onAddProject} title={t('sidebar.addProject')}>+</button>
           <button className="settings-btn" onClick={onOpenSettings}>⚙</button>

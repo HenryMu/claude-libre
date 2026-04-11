@@ -83,6 +83,12 @@
     "switch": "EN",
     "label": "语言"
   },
+  "theme": {
+    "system": "跟随系统",
+    "light": "浅色",
+    "dark": "深色",
+    "resolved": "当前：{{theme}}"
+  },
   "settings": {
     "title": "设置",
     "configEditor": "配置编辑器",

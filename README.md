@@ -1,6 +1,6 @@
 # Claude Libre
 
-**[English](./README.md)** | **[中文](./README.zh-CN.md)** | **[日本語](./README.ja.md)** | **[한국어](./README.ko.md)**
+**[中文](./README.zh-CN.md)** | [English](./README.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
 > **Community Open Source Project** — This is a free, open-source desktop GUI for the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI.
 > It is **NOT** the official [Claude Desktop](https://claude.ai/download) app by Anthropic (which requires a paid subscription).
@@ -8,7 +8,9 @@
 
 ![Electron](https://img.shields.io/badge/Electron-34-black?logo=electron) ![React](https://img.shields.io/badge/React-19-blue?logo=react) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript) ![License](https://img.shields.io/badge/License-MIT-green)
 
-![Screenshot](./screenshot.png)
+![Screenshot 1](./images/01.png)
+![Screenshot 2](./images/02.png)
+![Screenshot 3](./images/03.png)
 
 ## Features
 
@@ -18,20 +20,15 @@
 - **Conversation View** — Formatted message display with collapsible thinking blocks and tool call cards
 - **Code Tab** — Browse project files and inspect Claude Code `Write` / `Edit` changes with a Monaco-powered viewer and diff editor
 - **Terminal Integration** — Full `xterm.js` terminal for direct CLI interaction with Claude Code
-- **Session Resume** — Click any session to resume it via `claude --resume <session-id>`
+- **Image Upload** — Attach images to messages, with preview thumbnails
+- **@file Mention** — Type `@` to autocomplete project file paths
 - **Model & Effort Controls** — Switch models, set thinking effort, and use slash-command autocomplete from the input toolbar
+- **Cancel Button** — Interrupt current operation with one click
 - **Smart Permission Handling** — Interactive Allow/Always/Deny controls plus automatic confirmation for Claude Code trusted-workspace prompts
 - **Themes** — Dark mode, polished light mode, and a system-following default with a quick theme switcher
 - **Profiles & Settings** — Manage Claude config and reusable profiles from the built-in settings panel
 - **Multilingual UI** — English, Simplified Chinese, Traditional Chinese, Japanese, Korean, Hindi, and Portuguese
 - **Cross-platform** — Works on Windows, macOS, and Linux
-
-## What's New in v1.0.2
-
-- Added system-aware light/dark theme switching with a refined light sidebar and message styling
-- Added a new-session draft panel: choose a folder, select a model, and send the first prompt to auto-create the session
-- Added Code tab support for project file browsing and Monaco-based edit/write previews
-- Added model/effort selectors, slash-command autocomplete, and improved permission/workspace confirmation handling
 
 ## Why This Project?
 

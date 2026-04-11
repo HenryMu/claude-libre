@@ -1,6 +1,6 @@
 # Claude Libre
 
-**[English](./README.md)** | **[中文](./README.zh-CN.md)** | **[日本語](./README.ja.md)** | **[한국어](./README.ko.md)**
+**[中文](./README.zh-CN.md)** | [English](./README.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
 
 > **社区开源项目** — 这是一个免费、开源的 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI 桌面 GUI 客户端。
 > 它 **不是** Anthropic 官方的 [Claude Desktop](https://claude.ai/download) 应用（官方应用需要付费订阅）。
@@ -8,7 +8,9 @@
 
 ![Electron](https://img.shields.io/badge/Electron-34-black?logo=electron) ![React](https://img.shields.io/badge/React-19-blue?logo=react) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript) ![License](https://img.shields.io/badge/License-MIT-green)
 
-![截图](./screenshot.png)
+![截图 1](./images/01.png)
+![截图 2](./images/02.png)
+![截图 3](./images/03.png)
 
 ## 功能特性
 
@@ -18,20 +20,15 @@
 - **对话视图** — 格式化消息展示，支持折叠的思考块和工具调用卡片
 - **代码标签页** — 浏览项目文件，并通过 Monaco 查看 Claude Code `Write` / `Edit` 变更和差异
 - **终端集成** — 完整的 `xterm.js` 终端，可直接与 Claude Code CLI 交互
-- **会话恢复** — 点击任意会话即可通过 `claude --resume <session-id>` 恢复
+- **图片上传** — 支持在消息中附加图片，带缩略图预览
+- **@file 提及** — 输入 `@` 自动补全项目文件路径
 - **模型与深度控制** — 在输入栏切换模型、设置思考深度，并支持斜杠命令自动补全
+- **取消按钮** — 一键中断当前操作
 - **智能权限处理** — 提供 Allow/Always/Deny 交互控制，并自动确认 Claude Code 的可信工作区提示
 - **主题** — 支持暗色模式、精致浅色模式，以及默认跟随系统主题的快速切换
 - **配置集与设置** — 内置设置面板，可管理 Claude 配置和可复用配置集
 - **多语言界面** — 支持英文、简体中文、繁体中文、日文、韩文、印地语和葡萄牙语
 - **跨平台** — 支持 Windows、macOS 和 Linux
-
-## v1.0.2 新增内容
-
-- 新增跟随系统的浅色/暗色主题切换，并优化浅色侧边栏与消息样式
-- 新增会话草稿面板：选择文件夹、选择模型、发送首条消息即可自动创建会话
-- 新增代码标签页，支持项目文件浏览和 Monaco 驱动的写入/编辑预览
-- 新增模型/思考深度选择、斜杠命令补全，并改进权限与工作区确认处理
 
 ## 为什么做这个项目？
 

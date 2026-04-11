@@ -11,6 +11,7 @@
 ![截图 1](./images/01.png)
 ![截图 2](./images/02.png)
 ![截图 3](./images/03.png)
+![截图 4](./images/04.png)
 
 ## 功能特性
 

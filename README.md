@@ -93,7 +93,7 @@ Since this app is not signed with an Apple Developer certificate, macOS will sho
 Or run this in Terminal:
 
 ```bash
-xattr -cr /Applications/Claude\ Code\ Desktop.app
+xattr -cr /Applications/Claude\ Libre.app
 ```
 
 ## Architecture

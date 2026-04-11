@@ -112,6 +112,15 @@ export interface SessionDeletedPayload {
   sessionId: string
 }
 
+export interface ProjectAddedPayload {
+  sanitizedName: string
+  realPath: string
+}
+
+export interface ProjectDeletedPayload {
+  sanitizedName: string
+}
+
 /** PTY output data — routed by processKey */
 export interface PtyDataPayload {
   processKey: string
@@ -177,6 +186,10 @@ export interface ElectronAPI {
   onSessionUpdated: (callback: (data: SessionUpdatedPayload) => void) => () => void
   onSessionDeleted: (callback: (data: SessionDeletedPayload) => void) => () => void
 
+  // Project events
+  onProjectAdded: (callback: (data: ProjectAddedPayload) => void) => () => void
+  onProjectDeleted: (callback: (data: ProjectDeletedPayload) => void) => () => void
+
   // Terminal events — routed by processKey
   onPtyData: (callback: (data: PtyDataPayload) => void) => () => void
   onPtySpawned: (callback: (data: PtySpawnedPayload) => void) => () => void
@@ -212,4 +225,8 @@ export interface ElectronAPI {
   // Session management
   deleteSession: (projectSanitizedName: string, sessionId: string) => Promise<void>
   renameSession: (projectSanitizedName: string, sessionId: string, title: string) => Promise<void>
+
+  // Project management
+  addProject: () => Promise<{ sanitizedName: string; realPath: string } | null>
+  deleteProject: (projectSanitizedName: string) => Promise<void>
 }

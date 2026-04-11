@@ -15,7 +15,10 @@
     "delete": "删除",
     "confirmDelete": "确定删除此会话？此操作不可撤销。",
     "renamePrompt": "输入新标题：",
-    "pendingSession": "新会话（未连接）"
+    "pendingSession": "新会话（未连接）",
+    "addProject": "添加项目",
+    "deleteProject": "删除项目",
+    "confirmDeleteProject": "确定删除项目 \"{{path}}\"？所有会话将被永久删除。"
   },
   "tabs": {
     "conversation": "会话",
@@ -84,5 +87,33 @@
     "selectProfileHint": "选择或创建一个配置集",
     "cancel": "取消",
     "applied": "配置集已应用"
+  },
+  "toolbar": {
+    "model": "模型",
+    "effort": "深度"
+  },
+  "commands": {
+    "/model": "切换模型",
+    "/effort": "切换思考深度",
+    "/clear": "清空对话",
+    "/compact": "压缩上下文",
+    "/cost": "查看费用",
+    "/status": "查看状态",
+    "/context": "上下文用量",
+    "/diff": "查看变更",
+    "/memory": "编辑记忆",
+    "/plan": "计划模式",
+    "/help": "帮助",
+    "/skills": "查看技能",
+    "/config": "配置",
+    "/permissions": "权限管理",
+    "/export": "导出会话",
+    "/fast": "快速模式",
+    "/resume": "恢复会话",
+    "/rename": "重命名",
+    "/branch": "分支对话",
+    "/copy": "复制回复",
+    "/mcp": "MCP 服务",
+    "/doctor": "诊断问题"
   }
 }

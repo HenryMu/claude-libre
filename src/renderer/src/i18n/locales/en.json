@@ -15,7 +15,10 @@
     "delete": "Delete",
     "confirmDelete": "Delete this session? This cannot be undone.",
     "renamePrompt": "Enter new title:",
-    "pendingSession": "New Session (not connected)"
+    "pendingSession": "New Session (not connected)",
+    "addProject": "Add Project",
+    "deleteProject": "Delete Project",
+    "confirmDeleteProject": "Delete project \"{{path}}\"? All sessions will be permanently lost."
   },
   "tabs": {
     "conversation": "Conversation",
@@ -84,5 +87,33 @@
     "selectProfileHint": "Select or create a profile",
     "cancel": "Cancel",
     "applied": "Profile applied"
+  },
+  "toolbar": {
+    "model": "Model",
+    "effort": "Effort"
+  },
+  "commands": {
+    "/model": "Switch model",
+    "/effort": "Set effort level",
+    "/clear": "Clear conversation",
+    "/compact": "Compact context",
+    "/cost": "Show cost",
+    "/status": "Show status",
+    "/context": "Context usage",
+    "/diff": "Show diff",
+    "/memory": "Edit memory",
+    "/plan": "Plan mode",
+    "/help": "Help",
+    "/skills": "List skills",
+    "/config": "Settings",
+    "/permissions": "Permissions",
+    "/export": "Export conversation",
+    "/fast": "Toggle fast mode",
+    "/resume": "Resume session",
+    "/rename": "Rename session",
+    "/branch": "Branch conversation",
+    "/copy": "Copy last response",
+    "/mcp": "Manage MCP servers",
+    "/doctor": "Diagnose issues"
   }
 }

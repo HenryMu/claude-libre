@@ -1,8 +1,37 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionMeta, ActiveProcess, JsonlLine, SessionDetailsPayload } from '../../../shared/types'
 import type { TabType } from '../App'
 import type { ConnectionInfo } from '../hooks/useClaudeManager'
+
+// ===== Slash commands =====
+
+interface SlashCommand {
+  cmd: string
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { cmd: '/model' }, { cmd: '/effort' }, { cmd: '/clear' }, { cmd: '/compact' },
+  { cmd: '/cost' }, { cmd: '/status' }, { cmd: '/context' }, { cmd: '/diff' },
+  { cmd: '/memory' }, { cmd: '/plan' }, { cmd: '/help' }, { cmd: '/skills' },
+  { cmd: '/config' }, { cmd: '/permissions' }, { cmd: '/export' }, { cmd: '/fast' },
+  { cmd: '/resume' }, { cmd: '/rename' }, { cmd: '/branch' }, { cmd: '/copy' },
+  { cmd: '/mcp' }, { cmd: '/doctor' },
+]
+
+const MODEL_OPTIONS = [
+  { label: 'Sonnet', value: 'sonnet' },
+  { label: 'Opus', value: 'opus' },
+  { label: 'Haiku', value: 'haiku' },
+]
+
+const EFFORT_OPTIONS = [
+  { label: 'Auto', value: 'auto' },
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+  { label: 'Max', value: 'max' },
+]
 
 interface ProjectData {
   sanitizedName: string
@@ -248,7 +277,45 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+    if (e.key === 'Escape') { setShowCommands(false) }
   }
+
+  // Slash command autocomplete
+  const [showCommands, setShowCommands] = useState(false)
+  const [filteredCommands, setFilteredCommands] = useState<SlashCommand[]>([])
+  const [activeCmdIndex, setActiveCmdIndex] = useState(0)
+
+  useEffect(() => {
+    const trimmed = inputValue.trim()
+    if (trimmed.startsWith('/')) {
+      const query = trimmed.toLowerCase()
+      const filtered = SLASH_COMMANDS.filter(c => c.cmd.toLowerCase().startsWith(query))
+      setFilteredCommands(filtered)
+      setActiveCmdIndex(0)
+      setShowCommands(filtered.length > 0)
+    } else {
+      setShowCommands(false)
+    }
+  }, [inputValue])
+
+  const selectCommand = useCallback((cmd: string) => {
+    setInputValue(cmd + ' ')
+    setShowCommands(false)
+  }, [])
+
+  useEffect(() => {
+    if (!showCommands) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      // Don't close if clicking inside autocomplete
+      if (cmdListRef.current?.contains(target)) return
+      setShowCommands(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showCommands])
+
+  const cmdListRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { if (inputValue) { setPermissionPrompt(null); setPermissionCountdown(0) } }, [inputValue])
 
@@ -357,10 +424,37 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
       {/* Input bar */}
       <div className="input-bar">
-        <input type="text" className="chat-input"
-          placeholder={isConnected ? t('conversation.inputPlaceholder') : t('conversation.inputPlaceholderOffline')}
-          value={inputValue} onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown} disabled={!isConnected} />
+        <InputToolbar processKey={processKey} isConnected={isConnected} t={t} />
+        <div style={{ position: 'relative', flex: 1 }}>
+          <input type="text" className="chat-input"
+            placeholder={isConnected ? t('conversation.inputPlaceholder') : t('conversation.inputPlaceholderOffline')}
+            value={inputValue} onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (showCommands && filteredCommands.length > 0) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setActiveCmdIndex(i => (i + 1) % filteredCommands.length); return }
+                if (e.key === 'ArrowUp') { e.preventDefault(); setActiveCmdIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length); return }
+                if (e.key === 'Tab') { e.preventDefault(); selectCommand(filteredCommands[activeCmdIndex].cmd); return }
+              }
+              handleKeyDown(e)
+            }}
+            disabled={!isConnected} />
+          {/* Command autocomplete */}
+          {showCommands && filteredCommands.length > 0 && (
+            <div ref={cmdListRef} className="command-autocomplete">
+              {filteredCommands.map((cmd, i) => (
+                <div
+                  key={cmd.cmd}
+                  className={`command-item ${i === activeCmdIndex ? 'command-item-active' : ''}`}
+                  onMouseDown={(e) => { e.preventDefault(); selectCommand(cmd.cmd) }}
+                  onMouseEnter={() => setActiveCmdIndex(i)}
+                >
+                  <span className="command-name">{cmd.cmd}</span>
+                  <span className="command-desc">{t(`commands.${cmd.cmd}` as any, cmd.cmd)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <button className="btn" onClick={handleSend} disabled={!inputValue.trim() || !isConnected}>{t('conversation.send')}</button>
       </div>
     </div>
@@ -572,6 +666,91 @@ function ToolCall({ name, input, result, project }: {
           <pre>{resultText.slice(0, expanded ? Infinity : 200)}</pre>
         </div>
       )}
+    </div>
+  )
+}
+
+// ===== Input Toolbar (Model + Effort selectors) =====
+
+function InputToolbar({ processKey, isConnected, t }: {
+  processKey: string | null
+  isConnected: boolean
+  t: (key: string) => string
+}) {
+  const [modelOpen, setModelOpen] = useState(false)
+  const [effortOpen, setEffortOpen] = useState(false)
+  const modelRef = useRef<HTMLDivElement>(null)
+  const effortRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelOpen(false)
+      if (effortRef.current && !effortRef.current.contains(e.target as Node)) setEffortOpen(false)
+    }
+    if (modelOpen || effortOpen) {
+      document.addEventListener('mousedown', handler)
+      return () => document.removeEventListener('mousedown', handler)
+    }
+  }, [modelOpen, effortOpen])
+
+  const sendCommand = (cmd: string) => {
+    if (!processKey || !isConnected) return
+    window.electronAPI.ptyWrite(processKey, cmd + '\r')
+  }
+
+  return (
+    <div className="input-toolbar">
+      <div ref={modelRef} className="toolbar-selector">
+        <button
+          className="toolbar-btn"
+          onClick={() => { setModelOpen(!modelOpen); setEffortOpen(false) }}
+          disabled={!isConnected}
+          title={t('toolbar.model')}
+        >
+          <span className="toolbar-btn-icon">🧠</span>
+          <span className="toolbar-btn-label">{t('toolbar.model')}</span>
+          <span className="toolbar-btn-arrow">▾</span>
+        </button>
+        {modelOpen && (
+          <div className="toolbar-dropdown">
+            {MODEL_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                className="toolbar-dropdown-item"
+                onMouseDown={(e) => { e.preventDefault(); sendCommand(`/model ${opt.value}`); setModelOpen(false) }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div ref={effortRef} className="toolbar-selector">
+        <button
+          className="toolbar-btn"
+          onClick={() => { setEffortOpen(!effortOpen); setModelOpen(false) }}
+          disabled={!isConnected}
+          title={t('toolbar.effort')}
+        >
+          <span className="toolbar-btn-icon">💡</span>
+          <span className="toolbar-btn-label">{t('toolbar.effort')}</span>
+          <span className="toolbar-btn-arrow">▾</span>
+        </button>
+        {effortOpen && (
+          <div className="toolbar-dropdown">
+            {EFFORT_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                className="toolbar-dropdown-item"
+                onMouseDown={(e) => { e.preventDefault(); sendCommand(`/effort ${opt.value}`); setEffortOpen(false) }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

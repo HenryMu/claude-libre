@@ -140,7 +140,7 @@ function createWindow(): void {
   const projectsDir = getProjectsDir(app.getPath('home'))
   sessionWatcher = new SessionWatcher(projectsDir, mainWindow)
   claudeManager = new ClaudeManager(mainWindow)
-  registerIpcHandlers(sessionWatcher, claudeManager, app.getPath('home'))
+  registerIpcHandlers(sessionWatcher, claudeManager, app.getPath('home'), mainWindow)
   sessionWatcher.start()
 }
 

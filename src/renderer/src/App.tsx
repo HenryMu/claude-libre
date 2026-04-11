@@ -32,6 +32,22 @@ export default function App() {
     setActiveTab('conversation')
   }, [sessionState])
 
+  const handleAddProject = useCallback(async () => {
+    try {
+      await window.electronAPI.addProject()
+    } catch (err) {
+      console.error('Failed to add project:', err)
+    }
+  }, [])
+
+  const handleDeleteProject = useCallback(async (projectSanitizedName: string) => {
+    try {
+      await window.electronAPI.deleteProject(projectSanitizedName)
+    } catch (err) {
+      console.error('Failed to delete project:', err)
+    }
+  }, [])
+
   return (
     <div className="app-layout">
       <Sidebar
@@ -45,6 +61,8 @@ export default function App() {
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onOpenSettings={() => setSettingsOpen(true)}
+        onAddProject={handleAddProject}
+        onDeleteProject={handleDeleteProject}
       />
       <MainContent
         sessionState={sessionState}

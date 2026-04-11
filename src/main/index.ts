@@ -114,8 +114,44 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
-  // Hide default menu bar
-  Menu.setApplicationMenu(null)
+  // macOS: keep a minimal app menu so the menu bar shows the correct app name
+  // Windows/Linux: remove menu bar entirely
+  if (process.platform === 'darwin') {
+    const appName = app.getName()
+    const macMenu = Menu.buildFromTemplate([
+      {
+        label: appName,
+        submenu: [
+          { role: 'about', label: `About ${appName}` },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide', label: `Hide ${appName}` },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          {
+            label: `Quit ${appName}`,
+            accelerator: 'Cmd+Q',
+            click: () => { cleanup(); app.quit() }
+          }
+        ]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' }, { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      }
+    ])
+    Menu.setApplicationMenu(macMenu)
+  } else {
+    Menu.setApplicationMenu(null)
+    mainWindow.setMenuBarVisibility(false)
+  }
 
   // Close button hides to tray instead of quitting
   mainWindow.on('close', (e) => {
@@ -143,6 +179,9 @@ function createWindow(): void {
   registerIpcHandlers(sessionWatcher, claudeManager, app.getPath('home'), mainWindow)
   sessionWatcher.start()
 }
+
+// Set app name before ready so macOS menu bar shows correct name in dev mode
+app.setName('Claude Code Desktop')
 
 app.whenReady().then(() => {
   // Single instance lock

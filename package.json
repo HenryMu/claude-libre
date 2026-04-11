@@ -25,22 +25,18 @@
       },
       {
         "from": "logo.ico",
-        "to": "logo.ico",
-        "filter": [
-          "**/*"
-        ]
+        "to": "logo.ico"
       },
       {
         "from": "logo.icns",
-        "to": "logo.icns",
-        "filter": [
-          "**/*"
-        ]
+        "to": "logo.icns"
       }
     ],
     "win": {
       "icon": "logo.ico",
-      "target": "nsis",
+      "target": [
+        { "target": "nsis", "arch": ["x64", "arm64"] }
+      ],
       "signAndEditExecutable": false
     },
     "publish": {
@@ -50,7 +46,10 @@
     },
     "mac": {
       "icon": "logo.icns",
-      "target": "dmg"
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "category": "public.app-category.developer-tools"
     },
     "linux": {
       "icon": "logo.png",

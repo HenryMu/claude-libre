@@ -3,6 +3,11 @@ import { useTranslation } from 'react-i18next'
 import Editor from '@monaco-editor/react'
 import type { ProfileData } from '../../../shared/types'
 
+type Selection =
+  | { kind: 'current' }
+  | { kind: 'profile'; id: string; editing: boolean }
+  | { kind: 'new' }
+
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
@@ -10,25 +15,32 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState<'editor' | 'profiles'>('editor')
-  const [configText, setConfigText] = useState('')
+  const [selection, setSelection] = useState<Selection>({ kind: 'current' })
+  const [editorContent, setEditorContent] = useState('')
+  const [liveConfig, setLiveConfig] = useState('')
   const [profiles, setProfiles] = useState<ProfileData[]>([])
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null)
-  const [editProfile, setEditProfile] = useState<ProfileData | null>(null)
+  const [newProfileName, setNewProfileName] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [lastAppliedId, setLastAppliedId] = useState<string | null>(
+    () => localStorage.getItem('lastAppliedProfileId')
+  )
   const [toast, setToast] = useState<string | null>(null)
-  const editorRef = useRef<any>(null)
-  const profileEditorRef = useRef<any>(null)
+  const newNameRef = useRef<HTMLInputElement>(null)
 
   const showToast = useCallback((msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(null), 2000)
   }, [])
 
-  const loadConfigText = useCallback(async () => {
+  const loadConfig = useCallback(async () => {
     try {
       const text = await window.electronAPI.readConfigFile()
-      setConfigText(text)
-    } catch { /* ignore */ }
+      setLiveConfig(text)
+      return text
+    } catch {
+      return '{\n}\n'
+    }
   }, [])
 
   const loadProfiles = useCallback(async () => {
@@ -39,75 +51,145 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   }, [])
 
   useEffect(() => {
-    if (open) {
-      loadConfigText()
-      loadProfiles()
-      setTab('editor')
-      setSelectedProfileId(null)
-      setEditProfile(null)
+    if (!open) return
+    loadConfig().then(text => {
+      setEditorContent(text)
+    })
+    loadProfiles()
+    setSelection({ kind: 'current' })
+    setNewProfileName('')
+    setRenamingId(null)
+  }, [open, loadConfig, loadProfiles])
+
+  // Focus new profile name input when entering 'new' mode
+  useEffect(() => {
+    if (selection.kind === 'new') {
+      setTimeout(() => newNameRef.current?.focus(), 50)
     }
-  }, [open, loadConfigText, loadProfiles])
+  }, [selection])
+
+  // ===== Handlers =====
 
   const handleSaveConfig = useCallback(async () => {
     try {
-      await window.electronAPI.writeConfigFile(configText)
+      await window.electronAPI.writeConfigFile(editorContent)
+      setLiveConfig(editorContent)
       showToast(t('settings.configSaved'))
     } catch {
       showToast(t('settings.configSaveError'))
     }
-  }, [configText, t, showToast])
+  }, [editorContent, t, showToast])
 
   const handleApplyProfile = useCallback(async (profile: ProfileData) => {
     try {
       await window.electronAPI.writeConfigFile(profile.content)
-      setConfigText(profile.content)
+      setLiveConfig(profile.content)
+      localStorage.setItem('lastAppliedProfileId', profile.id)
+      setLastAppliedId(profile.id)
       showToast(t('settings.applied'))
     } catch {
       showToast(t('settings.configSaveError'))
     }
   }, [t, showToast])
 
-  const handleNewProfile = useCallback(() => {
-    setEditProfile({
-      id: '',
-      name: '',
-      content: configText,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    })
-    setSelectedProfileId(null)
-  }, [configText])
-
   const handleSaveProfile = useCallback(async () => {
-    if (!editProfile) return
-    try {
-      await window.electronAPI.saveProfile(editProfile)
-      await loadProfiles()
-      showToast(t('settings.profileSaved'))
-      setEditProfile(null)
-    } catch {
-      showToast(t('settings.configSaveError'))
+    if (selection.kind === 'new') {
+      const name = newProfileName.trim()
+      if (!name) { showToast('Enter a profile name'); return }
+      try {
+        await window.electronAPI.saveProfile({
+          id: '',
+          name,
+          content: editorContent,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+        await loadProfiles()
+        showToast(t('settings.profileSaved'))
+        setSelection({ kind: 'current' })
+        setNewProfileName('')
+      } catch {
+        showToast(t('settings.configSaveError'))
+      }
+    } else if (selection.kind === 'profile' && selection.editing) {
+      const profile = profiles.find(p => p.id === selection.id)
+      if (!profile) return
+      try {
+        await window.electronAPI.saveProfile({ ...profile, content: editorContent })
+        await loadProfiles()
+        showToast(t('settings.profileSaved'))
+        setSelection({ kind: 'profile', id: selection.id, editing: false })
+      } catch {
+        showToast(t('settings.configSaveError'))
+      }
     }
-  }, [editProfile, loadProfiles, t, showToast])
+  }, [selection, newProfileName, editorContent, profiles, loadProfiles, t, showToast])
 
   const handleDeleteProfile = useCallback(async (id: string) => {
     try {
       await window.electronAPI.deleteProfile(id)
       await loadProfiles()
-      if (selectedProfileId === id) {
-        setSelectedProfileId(null)
-        setEditProfile(null)
+      if (lastAppliedId === id) {
+        localStorage.removeItem('lastAppliedProfileId')
+        setLastAppliedId(null)
       }
+      setSelection({ kind: 'current' })
+      setEditorContent(liveConfig)
       showToast(t('settings.profileDeleted'))
     } catch { /* ignore */ }
-  }, [selectedProfileId, loadProfiles, t, showToast])
+  }, [lastAppliedId, liveConfig, loadProfiles, t, showToast])
 
-  const handleEditorMount = (editor: any) => { editorRef.current = editor }
-  const handleProfileEditorMount = (editor: any) => { profileEditorRef.current = editor }
+  const handleCancelEdit = useCallback(() => {
+    if (selection.kind === 'new') {
+      setSelection({ kind: 'current' })
+      setEditorContent(liveConfig)
+      setNewProfileName('')
+    } else if (selection.kind === 'profile' && selection.editing) {
+      const profile = profiles.find(p => p.id === selection.id)
+      setEditorContent(profile?.content || liveConfig)
+      setSelection({ kind: 'profile', id: selection.id, editing: false })
+    }
+  }, [selection, profiles, liveConfig])
+
+  const handleSelectProfile = useCallback((profile: ProfileData) => {
+    setSelection({ kind: 'profile', id: profile.id, editing: false })
+    setEditorContent(profile.content)
+  }, [])
+
+  const handleSelectCurrent = useCallback(() => {
+    setSelection({ kind: 'current' })
+    setEditorContent(liveConfig)
+  }, [liveConfig])
+
+  const handleStartNew = useCallback(() => {
+    setSelection({ kind: 'new' })
+    setEditorContent(liveConfig)
+    setNewProfileName('')
+  }, [liveConfig])
+
+  const handleStartRename = useCallback((profile: ProfileData) => {
+    setRenamingId(profile.id)
+    setRenameValue(profile.name)
+  }, [])
+
+  const handleCommitRename = useCallback(async (id: string) => {
+    const profile = profiles.find(p => p.id === id)
+    if (!profile || !renameValue.trim()) { setRenamingId(null); return }
+    try {
+      await window.electronAPI.saveProfile({ ...profile, name: renameValue.trim() })
+      await loadProfiles()
+    } catch { /* ignore */ }
+    setRenamingId(null)
+  }, [profiles, renameValue, loadProfiles])
 
   if (!open) return null
 
-  const selectedProfile = profiles.find(p => p.id === selectedProfileId)
+  const selectedProfile = selection.kind === 'profile'
+    ? profiles.find(p => p.id === selection.id)
+    : null
+
+  const isReadOnly = selection.kind === 'profile' && !selection.editing
+  const isEditing = selection.kind === 'new' || (selection.kind === 'profile' && selection.editing)
 
   const monacoOptions = {
     minimap: { enabled: false },
@@ -116,133 +198,200 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     scrollBeyondLastLine: false,
     automaticLayout: true,
     tabSize: 2,
-    wordWrap: 'on' as const
+    wordWrap: 'on' as const,
+    readOnly: isReadOnly
+  }
+
+  // Header label for the editor area
+  let editorLabel: React.ReactNode
+  if (selection.kind === 'current') {
+    editorLabel = <span className="settings-editor-label">~/.claude/settings.json</span>
+  } else if (selection.kind === 'new') {
+    editorLabel = (
+      <input
+        ref={newNameRef}
+        className="settings-name-input"
+        placeholder={t('settings.profileNamePlaceholder')}
+        value={newProfileName}
+        onChange={e => setNewProfileName(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') void handleSaveProfile() }}
+      />
+    )
+  } else if (selectedProfile) {
+    editorLabel = <span className="settings-editor-label">{selectedProfile.name}</span>
   }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-dialog modal-wide" onClick={e => e.stopPropagation()}>
+      <div className="modal-dialog modal-settings" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <span className="modal-title">{t('settings.title')}</span>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="tab-bar">
-          <button className={`tab-item ${tab === 'editor' ? 'active' : ''}`} onClick={() => setTab('editor')}>
-            {t('settings.configEditor')}
-          </button>
-          <button className={`tab-item ${tab === 'profiles' ? 'active' : ''}`} onClick={() => setTab('profiles')}>
-            {t('settings.profiles')}
-          </button>
-        </div>
-        <div className="modal-body">
-          {tab === 'editor' && (
-            <div className="editor-container">
+
+        <div className="settings-layout">
+          {/* ===== Left sidebar ===== */}
+          <div className="settings-sidebar">
+            {/* Current item */}
+            <div
+              className={`settings-current-item ${selection.kind === 'current' ? 'active' : ''}`}
+              onClick={handleSelectCurrent}
+            >
+              <span className="settings-current-star">★</span>
+              <span className="settings-current-label">Current</span>
+              {lastAppliedId === null && <span className="settings-applied-mark">✓</span>}
+            </div>
+
+            <div className="settings-divider" />
+
+            {/* Profile list */}
+            <div className="settings-profile-list">
+              {profiles.length === 0 && (
+                <div className="settings-empty-hint">{t('settings.noProfiles')}</div>
+              )}
+              {profiles.map(p => (
+                <ProfileRow
+                  key={p.id}
+                  profile={p}
+                  isSelected={selection.kind === 'profile' && selection.id === p.id}
+                  isApplied={lastAppliedId === p.id}
+                  isRenaming={renamingId === p.id}
+                  renameValue={renameValue}
+                  onSelect={() => handleSelectProfile(p)}
+                  onApply={() => void handleApplyProfile(p)}
+                  onEdit={() => {
+                    handleSelectProfile(p)
+                    setSelection({ kind: 'profile', id: p.id, editing: true })
+                  }}
+                  onDelete={() => void handleDeleteProfile(p.id)}
+                  onStartRename={() => handleStartRename(p)}
+                  onRenameChange={setRenameValue}
+                  onRenameCommit={() => void handleCommitRename(p.id)}
+                  onRenameCancel={() => setRenamingId(null)}
+                />
+              ))}
+            </div>
+
+            {/* Add button */}
+            <button
+              className={`settings-add-btn ${selection.kind === 'new' ? 'active' : ''}`}
+              onClick={handleStartNew}
+            >
+              + {t('settings.addProfile')}
+            </button>
+          </div>
+
+          {/* ===== Right editor area ===== */}
+          <div className="settings-main">
+            <div className="settings-editor-header">
+              {editorLabel}
+            </div>
+
+            <div className="settings-editor-body">
               <Editor
-                height="400px"
+                height="100%"
                 language="json"
                 theme="vs-dark"
-                value={configText}
-                onChange={v => v && setConfigText(v)}
-                onMount={handleEditorMount}
+                value={editorContent}
+                onChange={v => { if (v !== undefined) setEditorContent(v) }}
                 options={monacoOptions}
               />
-              <div className="editor-toolbar">
-                <span className="editor-path">~/.claude/settings.json</span>
-                <button className="btn" onClick={handleSaveConfig}>{t('settings.saveConfig')}</button>
-              </div>
             </div>
-          )}
 
-          {tab === 'profiles' && (
-            <div className="profile-layout">
-              <div className="profile-list">
-                {profiles.length === 0 && (
-                  <div className="profile-empty">{t('settings.noProfiles')}</div>
-                )}
-                {profiles.map(p => (
-                  <div
-                    key={p.id}
-                    className={`profile-item ${selectedProfileId === p.id ? 'selected' : ''}`}
-                    onClick={() => { setSelectedProfileId(p.id); setEditProfile(null) }}
-                  >
-                    <span className={`profile-item-name ${selectedProfileId === p.id ? 'selected' : ''}`}>
-                      {p.name || '(unnamed)'}
-                    </span>
-                    <button className="profile-apply-btn" onClick={e => { e.stopPropagation(); handleApplyProfile(p) }}>
-                      {t('settings.applyProfile')}
-                    </button>
-                  </div>
-                ))}
-                <button className="profile-add-btn" onClick={handleNewProfile}>
-                  + {t('settings.addProfile')}
+            <div className="settings-action-bar">
+              {selection.kind === 'current' && (
+                <button className="btn" onClick={handleSaveConfig}>
+                  {t('settings.saveConfig')}
                 </button>
-              </div>
-
-              <div className="profile-form">
-                {editProfile ? (
-                  <>
-                    <div className="config-field">
-                      <label className="config-label">{t('settings.profileName')}</label>
-                      <input
-                        className="config-input"
-                        type="text"
-                        value={editProfile.name}
-                        placeholder={t('settings.profileNamePlaceholder')}
-                        onChange={e => setEditProfile({ ...editProfile, name: e.target.value })}
-                      />
-                    </div>
-                    <div className="profile-editor-wrapper">
-                      <Editor
-                        height="280px"
-                        language="json"
-                        theme="vs-dark"
-                        value={editProfile.content}
-                        onChange={v => v && setEditProfile({ ...editProfile, content: v })}
-                        onMount={handleProfileEditorMount}
-                        options={monacoOptions}
-                      />
-                    </div>
-                    <div className="profile-form-actions">
-                      <button className="btn" onClick={handleSaveProfile}>{t('settings.saveProfile')}</button>
-                      <button className="btn btn-danger" onClick={() => setEditProfile(null)}>{t('settings.cancel')}</button>
-                    </div>
-                  </>
-                ) : selectedProfile ? (
-                  <>
-                    <div className="config-field">
-                      <label className="config-label">{t('settings.profileName')}</label>
-                      <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{selectedProfile.name}</div>
-                    </div>
-                    <div className="profile-editor-wrapper">
-                      <Editor
-                        height="280px"
-                        language="json"
-                        theme="vs-dark"
-                        value={selectedProfile.content}
-                        options={{ ...monacoOptions, readOnly: true }}
-                      />
-                    </div>
-                    <div className="profile-form-actions">
-                      <button className="btn" onClick={() => setEditProfile({ ...selectedProfile })}>
-                        {t('settings.editProfile')}
-                      </button>
-                      <button className="btn" onClick={() => handleApplyProfile(selectedProfile)}>
-                        {t('settings.applyProfile')}
-                      </button>
-                      <button className="btn btn-danger" onClick={() => handleDeleteProfile(selectedProfile.id)}>
-                        {t('settings.deleteProfile')}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="profile-empty">{t('settings.selectProfileHint')}</div>
-                )}
-              </div>
+              )}
+              {selection.kind === 'profile' && !selection.editing && selectedProfile && (
+                <>
+                  <button className="btn" onClick={() => void handleApplyProfile(selectedProfile)}>
+                    {t('settings.applyProfile')}
+                  </button>
+                  <button className="btn" onClick={() => setSelection({ kind: 'profile', id: selection.id, editing: true })}>
+                    {t('settings.editProfile')}
+                  </button>
+                  <button className="btn btn-danger" onClick={() => void handleDeleteProfile(selection.id)}>
+                    {t('settings.deleteProfile')}
+                  </button>
+                </>
+              )}
+              {isEditing && (
+                <>
+                  <button className="btn" onClick={() => void handleSaveProfile()}>
+                    {t('settings.saveProfile')}
+                  </button>
+                  <button className="btn" onClick={handleCancelEdit}>
+                    {t('settings.cancel')}
+                  </button>
+                </>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
       {toast && <div className="toast">{toast}</div>}
+    </div>
+  )
+}
+
+// ===== ProfileRow subcomponent =====
+
+function ProfileRow({
+  profile, isSelected, isApplied, isRenaming, renameValue,
+  onSelect, onApply, onEdit, onDelete,
+  onStartRename, onRenameChange, onRenameCommit, onRenameCancel
+}: {
+  profile: ProfileData
+  isSelected: boolean
+  isApplied: boolean
+  isRenaming: boolean
+  renameValue: string
+  onSelect: () => void
+  onApply: () => void
+  onEdit: () => void
+  onDelete: () => void
+  onStartRename: () => void
+  onRenameChange: (v: string) => void
+  onRenameCommit: () => void
+  onRenameCancel: () => void
+}) {
+  const renameRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (isRenaming) setTimeout(() => renameRef.current?.select(), 30)
+  }, [isRenaming])
+
+  return (
+    <div
+      className={`settings-profile-row ${isSelected ? 'active' : ''}`}
+      onClick={onSelect}
+    >
+      {isRenaming ? (
+        <input
+          ref={renameRef}
+          className="settings-rename-input"
+          value={renameValue}
+          onChange={e => onRenameChange(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.stopPropagation(); onRenameCommit() }
+            if (e.key === 'Escape') { e.stopPropagation(); onRenameCancel() }
+          }}
+          onClick={e => e.stopPropagation()}
+        />
+      ) : (
+        <span className="settings-profile-name" onDoubleClick={e => { e.stopPropagation(); onStartRename() }}>
+          {profile.name || '(unnamed)'}
+        </span>
+      )}
+      {isApplied && !isRenaming && <span className="settings-applied-mark">✓</span>}
+      {!isRenaming && (
+        <div className="settings-profile-actions">
+          <button className="settings-profile-btn" title="Apply" onMouseDown={e => { e.stopPropagation(); onApply() }}>▶</button>
+          <button className="settings-profile-btn" title="Edit" onMouseDown={e => { e.stopPropagation(); onEdit() }}>✎</button>
+          <button className="settings-profile-btn settings-profile-btn-danger" title="Delete" onMouseDown={e => { e.stopPropagation(); onDelete() }}>✕</button>
+        </div>
+      )}
     </div>
   )
 }

@@ -4,9 +4,9 @@ import MainContent from './components/MainContent'
 import SettingsModal from './components/SettingsModal'
 import { useSessionWatcher } from './hooks/useSessionWatcher'
 import { useClaudeManager } from './hooks/useClaudeManager'
-import type { SessionMeta } from '../../shared/types'
+import type { SessionMeta, CodeViewContext } from '../../shared/types'
 
-export type TabType = 'conversation' | 'terminal'
+export type TabType = 'conversation' | 'terminal' | 'code'
 
 export default function App() {
   const sessionState = useSessionWatcher()
@@ -15,6 +15,12 @@ export default function App() {
   // Track the processKey for the "new session" terminal
   const [newSessionProcessKey, setNewSessionProcessKey] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [codeViewContext, setCodeViewContext] = useState<CodeViewContext | null>(null)
+
+  const handleViewInCode = useCallback((filePath: string, oldContent: string, newContent: string) => {
+    setCodeViewContext({ filePath, oldContent, newContent })
+    setActiveTab('code')
+  }, [])
 
   const handleNewSession = useCallback((project: string) => {
     setNewSessionProcessKey(null)
@@ -115,6 +121,9 @@ export default function App() {
         newSessionProcessKey={newSessionProcessKey}
         onStartConversation={handleStartConversation}
         onAddProject={handleAddProject}
+        codeViewContext={codeViewContext}
+        onViewInCode={handleViewInCode}
+        onClearCodeView={() => setCodeViewContext(null)}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>

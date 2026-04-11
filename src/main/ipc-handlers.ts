@@ -1,9 +1,40 @@
 import { ipcMain, BrowserWindow } from 'electron'
+import fs from 'fs'
+import path from 'path'
 import { SessionWatcher } from './session-watcher'
 import { ClaudeManager } from './claude-manager'
 import { readClaudeConfig, writeClaudeConfig, readConfigFile, writeConfigFile, listProfiles, saveProfile, deleteProfile } from './config-manager'
 import { sanitizePath } from './path-utils'
-import type { ClaudeConfig, ProfileData } from '../shared/types'
+import type { ClaudeConfig, ProfileData, FileNode } from '../shared/types'
+
+const SKIP_NAMES = new Set([
+  'node_modules', '.git', '.svn', '__pycache__', '.next', 'dist', 'out', 'build',
+  '.cache', 'coverage', '.DS_Store', '.idea', '.vscode', 'vendor', 'target'
+])
+
+function readDirRecursive(dir: string, depth: number, maxDepth: number): FileNode[] {
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    const nodes: FileNode[] = []
+    for (const entry of entries) {
+      if (SKIP_NAMES.has(entry.name)) continue
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        const node: FileNode = { name: entry.name, path: fullPath, isDir: true }
+        if (depth < maxDepth) node.children = readDirRecursive(fullPath, depth + 1, maxDepth)
+        nodes.push(node)
+      } else {
+        nodes.push({ name: entry.name, path: fullPath, isDir: false })
+      }
+    }
+    return nodes.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+  } catch {
+    return []
+  }
+}
 
 export function registerIpcHandlers(
   sessionWatcher: SessionWatcher,
@@ -126,5 +157,19 @@ export function registerIpcHandlers(
   ipcMain.handle('delete-project', async (_, projectSanitizedName: string) => {
     await claudeManager.killByProject(projectSanitizedName)
     sessionWatcher.deleteProject(projectSanitizedName)
+  })
+
+  // ===== File browsing =====
+
+  ipcMain.handle('read-dir', (_, dirPath: string): FileNode[] => {
+    return readDirRecursive(dirPath, 0, 4)
+  })
+
+  ipcMain.handle('read-file', (_, filePath: string): string => {
+    try {
+      return fs.readFileSync(filePath, 'utf-8')
+    } catch (e: any) {
+      return `[Error reading file: ${e.message}]`
+    }
   })
 }

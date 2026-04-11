@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { SessionMeta, ActiveProcess, JsonlLine, SessionDetailsPayload } from '../../../shared/types'
+import type { SessionMeta, ActiveProcess, JsonlLine, SessionDetailsPayload, FileNode, CodeViewContext } from '../../../shared/types'
 import type { TabType } from '../App'
 import type { ConnectionInfo } from '../hooks/useClaudeManager'
 
@@ -68,6 +68,9 @@ interface MainContentProps {
   newSessionProcessKey: string | null
   onStartConversation: (project: string, message: string, model: string) => Promise<void>
   onAddProject: () => Promise<{ sanitizedName: string; realPath: string } | null>
+  codeViewContext: CodeViewContext | null
+  onViewInCode: (filePath: string, oldContent: string, newContent: string) => void
+  onClearCodeView: () => void
 }
 
 export default function MainContent({
@@ -77,7 +80,10 @@ export default function MainContent({
   onTabChange,
   newSessionProcessKey,
   onStartConversation,
-  onAddProject
+  onAddProject,
+  codeViewContext,
+  onViewInCode,
+  onClearCodeView
 }: MainContentProps) {
   const { t } = useTranslation()
   const { selectedProject, selectedSession, sessionDetails, projects } = sessionState
@@ -98,18 +104,9 @@ export default function MainContent({
     return (
       <div className="main-content">
         <div className="tab-bar">
-          <button
-            className={`tab-item ${activeTab === 'conversation' ? 'active' : ''}`}
-            onClick={() => onTabChange('conversation')}
-          >
-            {t('tabs.conversation')}
-          </button>
-          <button
-            className={`tab-item ${activeTab === 'terminal' ? 'active' : ''}`}
-            onClick={() => onTabChange('terminal')}
-          >
-            {t('tabs.terminal')}
-          </button>
+          <button className={`tab-item ${activeTab === 'conversation' ? 'active' : ''}`} onClick={() => onTabChange('conversation')}>{t('tabs.conversation')}</button>
+          <button className={`tab-item ${activeTab === 'terminal' ? 'active' : ''}`} onClick={() => onTabChange('terminal')}>{t('tabs.terminal')}</button>
+          <button className={`tab-item ${activeTab === 'code' ? 'active' : ''}`} onClick={() => onTabChange('code')}>{t('tabs.code')}</button>
         </div>
         <DraftStartPane
           project={project || null}
@@ -133,17 +130,11 @@ export default function MainContent({
   return (
     <div className="main-content">
       <div className="tab-bar">
-        <button
-          className={`tab-item ${activeTab === 'conversation' ? 'active' : ''}`}
-          onClick={() => onTabChange('conversation')}
-        >
-          {t('tabs.conversation')}
-        </button>
-        <button
-          className={`tab-item ${activeTab === 'terminal' ? 'active' : ''}`}
-          onClick={() => onTabChange('terminal')}
-        >
-          {t('tabs.terminal')}
+        <button className={`tab-item ${activeTab === 'conversation' ? 'active' : ''}`} onClick={() => onTabChange('conversation')}>{t('tabs.conversation')}</button>
+        <button className={`tab-item ${activeTab === 'terminal' ? 'active' : ''}`} onClick={() => onTabChange('terminal')}>{t('tabs.terminal')}</button>
+        <button className={`tab-item ${activeTab === 'code' ? 'active' : ''}`} onClick={() => onTabChange('code')}>
+          {t('tabs.code')}
+          {codeViewContext && <span className="tab-badge" />}
         </button>
       </div>
 
@@ -158,6 +149,7 @@ export default function MainContent({
             processKey={activeProcessKey}
             isPending={isPending}
             claudeState={claudeState}
+            onViewInCode={onViewInCode}
           />
         </div>
         <div style={{ display: activeTab === 'terminal' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
@@ -169,6 +161,13 @@ export default function MainContent({
             isPending={false}
             selectedSession={selectedSession}
             claudeState={claudeState}
+          />
+        </div>
+        <div style={{ display: activeTab === 'code' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
+          <CodeTab
+            realPath={project.realPath}
+            codeViewContext={codeViewContext}
+            onClearCodeView={onClearCodeView}
           />
         </div>
       </div>
@@ -313,7 +312,7 @@ function DraftStartPane({
   )
 }
 
-function ConversationTab({ project, realPath, selectedSession, sessionDetails, isConnected, processKey, isPending, claudeState }: {
+function ConversationTab({ project, realPath, selectedSession, sessionDetails, isConnected, processKey, isPending, claudeState, onViewInCode }: {
   project: string
   realPath: string
   selectedSession: string | null
@@ -322,6 +321,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   processKey: string | null
   isPending: boolean
   claudeState: ClaudeState
+  onViewInCode: (filePath: string, oldContent: string, newContent: string) => void
 }) {
   const { t } = useTranslation()
   const [inputValue, setInputValue] = useState('')
@@ -595,7 +595,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
               </div>
             )}
             {messages.map((msg, i) => (
-              <MessageItem key={msg.uuid || i} line={msg} project={project} />
+              <MessageItem key={msg.uuid || i} line={msg} project={project} onViewInCode={onViewInCode} />
             ))}
 
             {isThinking && !systemSuccessMsg && (
@@ -836,7 +836,7 @@ function getToolIcon(name: string): string {
   }
 }
 
-function MessageItem({ line, project }: { line: JsonlLine; project: string }) {
+function MessageItem({ line, project, onViewInCode }: { line: JsonlLine; project: string; onViewInCode: (f: string, o: string, n: string) => void }) {
   const role = line.message?.role || line.type
   const content = line.message?.content
   let textContent: string = ''
@@ -861,15 +861,16 @@ function MessageItem({ line, project }: { line: JsonlLine; project: string }) {
           </details>
         ))}
         {toolPairs.map((pair, i) => (
-          <ToolCall key={`tool-${i}`} name={pair.toolUse.name} input={pair.toolUse.input} result={pair.toolResult} project={project} />
+          <ToolCall key={`tool-${i}`} name={pair.toolUse.name} input={pair.toolUse.input} result={pair.toolResult} project={project} onViewInCode={onViewInCode} />
         ))}
       </div>
     </div>
   )
 }
 
-function ToolCall({ name, input, result, project }: {
+function ToolCall({ name, input, result, project, onViewInCode }: {
   name: string; input: Record<string, unknown>; result?: any; project: string
+  onViewInCode: (filePath: string, oldContent: string, newContent: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const summary = getToolSummary(name, input)
@@ -878,12 +879,30 @@ function ToolCall({ name, input, result, project }: {
   const hasResult = resultText.length > 0
   const isError = result?.is_error
 
+  const canViewCode = (name === 'Edit' && input.old_string != null) || (name === 'Write' && input.content != null)
+
   return (
     <div className={`tool-call ${isError ? 'tool-error' : ''}`}>
       <div className="tool-call-header" onClick={() => setExpanded(!expanded)}>
         <span className="tool-icon">{icon}</span>
         <span className="tool-name">{name}</span>
         <span className="tool-summary">{summary}</span>
+        {canViewCode && (
+          <button
+            className="tool-code-btn"
+            title="View in Code tab"
+            onMouseDown={(e) => {
+              e.stopPropagation()
+              if (name === 'Edit') {
+                onViewInCode(input.file_path as string || '', input.old_string as string || '', input.new_string as string || '')
+              } else {
+                onViewInCode(input.file_path as string || '', '', input.content as string || '')
+              }
+            }}
+          >
+            &lt;/&gt;
+          </button>
+        )}
         <span className="tool-expand">{expanded ? '▾' : '▸'}</span>
       </div>
       {expanded && (
@@ -1000,5 +1019,219 @@ function InputToolbar({ processKey, isConnected, t, currentModel, currentEffort 
         )}
       </div>
     </div>
+  )
+}
+
+// ===== Code Tab =====
+
+function detectLanguage(filePath: string): string {
+  const ext = (filePath.split('.').pop() || '').toLowerCase()
+  const MAP: Record<string, string> = {
+    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+    py: 'python', rs: 'rust', go: 'go', java: 'java', kt: 'kotlin',
+    css: 'css', scss: 'scss', less: 'less', html: 'html', json: 'json',
+    md: 'markdown', yaml: 'yaml', yml: 'yaml', sh: 'shell', bash: 'shell',
+    c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp', rb: 'ruby', php: 'php',
+    swift: 'swift', cs: 'csharp', xml: 'xml', toml: 'toml', ini: 'ini', sql: 'sql',
+  }
+  return MAP[ext] || 'plaintext'
+}
+
+function fileIcon(node: FileNode): string {
+  if (node.isDir) return '📁'
+  const ext = (node.name.split('.').pop() || '').toLowerCase()
+  if (['ts', 'tsx'].includes(ext)) return '🟦'
+  if (['js', 'jsx'].includes(ext)) return '🟨'
+  if (ext === 'py') return '🐍'
+  if (ext === 'json') return '{ }'
+  if (['md', 'txt'].includes(ext)) return '📄'
+  if (['css', 'scss'].includes(ext)) return '🎨'
+  if (['html', 'xml'].includes(ext)) return '🌐'
+  return '📄'
+}
+
+function FileTreeNode({
+  node,
+  depth,
+  selectedFile,
+  onSelect,
+}: {
+  node: FileNode
+  depth: number
+  selectedFile: string | null
+  onSelect: (node: FileNode) => void
+}) {
+  const [expanded, setExpanded] = useState(depth === 0)
+
+  if (node.isDir) {
+    return (
+      <div>
+        <div
+          className="filetree-dir"
+          style={{ paddingLeft: depth * 12 + 8 }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="filetree-arrow">{expanded ? '▾' : '▸'}</span>
+          <span className="filetree-icon">📁</span>
+          <span className="filetree-name">{node.name}</span>
+        </div>
+        {expanded && node.children?.map((child) => (
+          <FileTreeNode key={child.path} node={child} depth={depth + 1} selectedFile={selectedFile} onSelect={onSelect} />
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={`filetree-file ${selectedFile === node.path ? 'filetree-file-active' : ''}`}
+      style={{ paddingLeft: depth * 12 + 8 }}
+      onClick={() => onSelect(node)}
+    >
+      <span className="filetree-icon">{fileIcon(node)}</span>
+      <span className="filetree-name">{node.name}</span>
+    </div>
+  )
+}
+
+function CodeTab({
+  realPath,
+  codeViewContext,
+  onClearCodeView,
+}: {
+  realPath: string
+  codeViewContext: CodeViewContext | null
+  onClearCodeView: () => void
+}) {
+  const [fileTree, setFileTree] = useState<FileNode[]>([])
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [fileContent, setFileContent] = useState<string>('')
+  const [fileLoading, setFileLoading] = useState(false)
+  const projectName = realPath.split(/[/\\]/).pop() || realPath
+
+  // Load tree when realPath changes
+  useEffect(() => {
+    setFileTree([])
+    window.electronAPI.readDir(realPath).then(setFileTree).catch(() => setFileTree([]))
+  }, [realPath])
+
+  const handleSelectFile = useCallback(async (node: FileNode) => {
+    if (node.isDir) return
+    setSelectedFile(node.path)
+    onClearCodeView()
+    setFileLoading(true)
+    try {
+      const content = await window.electronAPI.readFile(node.path)
+      setFileContent(content)
+    } finally {
+      setFileLoading(false)
+    }
+  }, [onClearCodeView])
+
+  // When diff context clears via file select, don't clear selectedFile
+  const isDiffMode = !!codeViewContext
+  const editorLang = isDiffMode
+    ? detectLanguage(codeViewContext.filePath)
+    : (selectedFile ? detectLanguage(selectedFile) : 'plaintext')
+
+  const fileName = isDiffMode
+    ? codeViewContext.filePath.split(/[/\\]/).pop() || codeViewContext.filePath
+    : (selectedFile?.split(/[/\\]/).pop() || '')
+
+  return (
+    <div className="code-tab">
+      {/* File tree panel */}
+      <div className="code-filetree">
+        <div className="code-filetree-header">{projectName}</div>
+        <div className="code-filetree-body">
+          {fileTree.map((node) => (
+            <FileTreeNode key={node.path} node={node} depth={0} selectedFile={selectedFile} onSelect={handleSelectFile} />
+          ))}
+        </div>
+      </div>
+
+      {/* Editor panel */}
+      <div className="code-editor-area">
+        {isDiffMode ? (
+          <>
+            <div className="code-editor-header">
+              <span className="code-editor-filename">
+                {codeViewContext.oldContent ? 'Diff: ' : 'Write: '}
+                {codeViewContext.filePath}
+              </span>
+              <button className="code-editor-close" onClick={onClearCodeView}>✕ Close</button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              {codeViewContext.oldContent ? (
+                <MonacoDiffEditorLazy
+                  original={codeViewContext.oldContent}
+                  modified={codeViewContext.newContent}
+                  language={editorLang}
+                />
+              ) : (
+                <MonacoEditorLazy
+                  value={codeViewContext.newContent}
+                  language={editorLang}
+                  readOnly
+                />
+              )}
+            </div>
+          </>
+        ) : selectedFile ? (
+          <>
+            <div className="code-editor-header">
+              <span className="code-editor-filename">{fileName}</span>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              {fileLoading ? (
+                <div className="code-editor-loading">Loading…</div>
+              ) : (
+                <MonacoEditorLazy value={fileContent} language={editorLang} readOnly={false} />
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="code-editor-empty">
+            <div className="code-editor-empty-hint">Select a file to view, or click &lt;/&gt; on an Edit/Write action in the conversation</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Lazy Monaco wrappers (avoid loading Monaco until Code tab is used)
+function MonacoEditorLazy({ value, language, readOnly }: { value: string; language: string; readOnly: boolean }) {
+  const [Editor, setEditor] = useState<any>(null)
+  useEffect(() => {
+    import('@monaco-editor/react').then((m) => setEditor(() => m.default))
+  }, [])
+  if (!Editor) return <div className="code-editor-loading">Loading editor…</div>
+  return (
+    <Editor
+      height="100%"
+      value={value}
+      language={language}
+      theme="vs-dark"
+      options={{ readOnly, minimap: { enabled: true }, fontSize: 13, scrollBeyondLastLine: false, wordWrap: 'on' }}
+    />
+  )
+}
+
+function MonacoDiffEditorLazy({ original, modified, language }: { original: string; modified: string; language: string }) {
+  const [DiffEditor, setDiffEditor] = useState<any>(null)
+  useEffect(() => {
+    import('@monaco-editor/react').then((m) => setDiffEditor(() => m.DiffEditor))
+  }, [])
+  if (!DiffEditor) return <div className="code-editor-loading">Loading editor…</div>
+  return (
+    <DiffEditor
+      height="100%"
+      original={original}
+      modified={modified}
+      language={language}
+      theme="vs-dark"
+      options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, fontSize: 13 }}
+    />
   )
 }

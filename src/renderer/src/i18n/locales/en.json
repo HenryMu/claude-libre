@@ -22,7 +22,8 @@
   },
   "tabs": {
     "conversation": "Conversation",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "code": "Code"
   },
   "conversation": {
     "selectProject": "Select a project to view sessions",

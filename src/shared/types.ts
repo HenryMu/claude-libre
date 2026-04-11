@@ -23,6 +23,21 @@ export interface ProjectInfo {
   realPath: string
 }
 
+// ===== Code / File Browser =====
+
+export interface FileNode {
+  name: string
+  path: string
+  isDir: boolean
+  children?: FileNode[]
+}
+
+export interface CodeViewContext {
+  filePath: string
+  oldContent: string  // empty = new file (Write tool); non-empty = diff (Edit tool)
+  newContent: string
+}
+
 // ===== JSONL Line Types =====
 
 export type MessageType = 'user' | 'assistant' | 'system' | 'attachment' | 'file-history-snapshot' | 'permission-mode' | 'last-prompt'
@@ -229,4 +244,8 @@ export interface ElectronAPI {
   // Project management
   addProject: () => Promise<{ sanitizedName: string; realPath: string } | null>
   deleteProject: (projectSanitizedName: string) => Promise<void>
+
+  // File browsing
+  readDir: (dirPath: string) => Promise<FileNode[]>
+  readFile: (filePath: string) => Promise<string>
 }

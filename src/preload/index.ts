@@ -107,7 +107,11 @@ const electronAPI: ElectronAPI = {
 
   // Project management
   addProject: () => ipcRenderer.invoke('add-project'),
-  deleteProject: (projectSanitizedName) => ipcRenderer.invoke('delete-project', projectSanitizedName)
+  deleteProject: (projectSanitizedName) => ipcRenderer.invoke('delete-project', projectSanitizedName),
+
+  // File browsing
+  readDir: (dirPath) => ipcRenderer.invoke('read-dir', dirPath),
+  readFile: (filePath) => ipcRenderer.invoke('read-file', filePath)
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

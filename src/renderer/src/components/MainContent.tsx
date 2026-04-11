@@ -432,15 +432,15 @@ function deriveConversationState(args: {
   turns: NormalizedTurn[]
   permissionPrompt: PermissionPromptPayload | null
   optimisticThinking: boolean
-  isPending: boolean
+  allowLiveTurnState: boolean
   isConnected: boolean
 }): ConversationState | 'idle' {
   if (args.permissionPrompt) return 'waiting_permission'
 
   const lastTurn = args.turns[args.turns.length - 1]
-  if (lastTurn?.status && lastTurn.status !== 'idle') return lastTurn.status
+  if (args.allowLiveTurnState && lastTurn?.status && lastTurn.status !== 'idle') return lastTurn.status
 
-  if ((args.optimisticThinking || args.isPending) && args.isConnected) return 'thinking'
+  if (args.optimisticThinking && args.isConnected) return 'thinking'
   return 'idle'
 }
 
@@ -509,6 +509,21 @@ export default function MainContent({
     )
   }
 
+  const handleConnect = async () => {
+    let pk: string | null = null
+    if (isPending) {
+      pk = await claudeState.connectNew(selectedProject!)
+    } else if (selectedSession) {
+      pk = await claudeState.connect(selectedProject!, selectedSession)
+    }
+  }
+
+  const handleDisconnect = async () => {
+    if (activeProcessKey) {
+      await claudeState.disconnect(activeProcessKey)
+    }
+  }
+
   return (
     <div className="main-content">
       <div className="tab-bar">
@@ -518,6 +533,16 @@ export default function MainContent({
           {t('tabs.code')}
           {codeViewContext && <span className="tab-badge" />}
         </button>
+        <div className="tab-bar-spacer" />
+        <span
+          className={`status-dot ${isSelectedConnected ? 'dot-connected' : 'dot-offline'} tab-bar-status-dot`}
+          title={isSelectedConnected ? t('conversation.connected') : t('conversation.disconnected')}
+        />
+        {isSelectedConnected ? (
+          <button className="tab-bar-btn tab-bar-btn-connected" onClick={handleDisconnect}>{t('conversation.disconnect')}</button>
+        ) : selectedSession && !isPending ? (
+          <button className="tab-bar-btn tab-bar-btn-connect" onClick={handleConnect}>{t('conversation.connect')}</button>
+        ) : null}
       </div>
 
       <div className="tab-content">
@@ -712,8 +737,10 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const [permissionFailed, setPermissionFailed] = useState(false)
   const [manualInput, setManualInput] = useState('')
   const [optimisticThinking, setOptimisticThinking] = useState(false)
+  const [allowLiveTurnState, setAllowLiveTurnState] = useState(false)
   const [systemSuccessMsg, setSystemSuccessMsg] = useState<string | null>(null)
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false)
+  const [isCancellingTurn, setIsCancellingTurn] = useState(false)
   const [currentModel, setCurrentModel] = useState<string>('sonnet')
   const [currentEffort, setCurrentEffort] = useState<string>('medium')
   const [connectError, setConnectError] = useState<string | null>(null)
@@ -723,17 +750,20 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const successMsgRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasHydratedSessionRef = useRef(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const turns = useMemo(() => normalizeSessionLines(sessionDetails?.lines || []), [sessionDetails?.lines])
+  const latestTurnStatus = turns[turns.length - 1]?.status ?? 'idle'
   const conversationState = useMemo(
     () => deriveConversationState({
       turns,
       permissionPrompt,
       optimisticThinking,
-      isPending,
+      allowLiveTurnState,
       isConnected,
     }),
-    [turns, permissionPrompt, optimisticThinking, isPending, isConnected]
+    [turns, permissionPrompt, optimisticThinking, allowLiveTurnState, isConnected]
   )
 
   // Auto-scroll
@@ -752,20 +782,33 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
   // Reset on session change
   useEffect(() => {
+    setInputValue('')
+    setPendingImages([])
+    setCaretIndex(0)
     setOptimisticThinking(false)
+    setAllowLiveTurnState(false)
     setSystemSuccessMsg(null)
     setPermissionPrompt(null)
     setConnectError(null)
     setIsSubmittingMessage(false)
+    setIsCancellingTurn(false)
+    hasHydratedSessionRef.current = false
     setCurrentModel('sonnet')
     setCurrentEffort('medium')
     if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
+    if (cancelTimerRef.current) { clearTimeout(cancelTimerRef.current); cancelTimerRef.current = null }
   }, [selectedSession])
 
-  // Session file updated → hand control to normalized turn state
+  // Session file updated → 仅在当前会话首次加载后的后续增量更新里采用 live turn 状态
   useEffect(() => {
-    if (sessionDetails) setOptimisticThinking(false)
-  }, [sessionDetails?.lines.length, sessionDetails?.meta.sessionId])
+    if (!sessionDetails) return
+    if (!hasHydratedSessionRef.current) {
+      hasHydratedSessionRef.current = true
+      return
+    }
+    setOptimisticThinking(false)
+    setAllowLiveTurnState(latestTurnStatus !== 'idle')
+  }, [sessionDetails?.lines.length, sessionDetails?.meta.sessionId, latestTurnStatus])
 
   // Permission events — filtered by processKey
   useEffect(() => {
@@ -839,6 +882,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
       for (const pattern of patterns) {
         if (pattern.test(buffer)) {
           setOptimisticThinking(false)
+          setAllowLiveTurnState(false)
           setSystemSuccessMsg(buffer.trim())
           // Auto-hide after 3 seconds
           if (successMsgRef.current) clearInterval(successMsgRef.current)
@@ -887,8 +931,36 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
   // Disconnect button
   const handleDisconnect = async () => {
-    if (processKey) await claudeState.disconnect(processKey)
+    if (processKey) {
+      await claudeState.disconnect(processKey)
+    }
   }
+
+  // Cancel button — send Escape to interrupt current operation
+  const handleCancel = () => {
+    if (!processKey || isCancellingTurn) return
+    setIsCancellingTurn(true)
+    window.electronAPI.ptyWrite(processKey, '\x1b')
+    if (cancelTimerRef.current) clearTimeout(cancelTimerRef.current)
+    cancelTimerRef.current = setTimeout(() => {
+      setOptimisticThinking(false)
+      setAllowLiveTurnState(false)
+      setIsCancellingTurn(false)
+      cancelTimerRef.current = null
+    }, 1500)
+  }
+
+  const isBusy = conversationState !== 'idle' && conversationState !== 'waiting_permission' && isConnected && !!processKey
+
+  useEffect(() => {
+    if (isBusy) return
+    setIsCancellingTurn(false)
+    setAllowLiveTurnState(false)
+    if (cancelTimerRef.current) {
+      clearTimeout(cancelTimerRef.current)
+      cancelTimerRef.current = null
+    }
+  }, [isBusy])
 
   // Send message
   const handleSend = async () => {
@@ -909,6 +981,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
         setPendingImages([])
         setCaretIndex(0)
         setOptimisticThinking(true)
+        setAllowLiveTurnState(true)
         setSystemSuccessMsg(null)
         if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
       } catch (error) {
@@ -924,6 +997,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
     setInputValue('')
     setCaretIndex(0)
     setOptimisticThinking(true)
+    setAllowLiveTurnState(true)
     setSystemSuccessMsg(null)
     if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
   }
@@ -1094,21 +1168,6 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Connection control bar */}
-      {!isConnected && !isPending && selectedSession && !selectedSession.startsWith('__pending_') && (
-        <div className="connect-bar">
-          <span className="connect-bar-text">{t('conversation.notConnected')}</span>
-          <button className="btn btn-connect" onClick={handleConnect}>{t('conversation.connect')}</button>
-          {connectError && <span className="connect-error">{connectError}</span>}
-        </div>
-      )}
-      {isConnected && processKey && (
-        <div className="connect-bar connect-bar-active">
-          <span className="connect-bar-text">{t('conversation.connected')}</span>
-          <button className="btn btn-disconnect" onClick={handleDisconnect}>{t('conversation.disconnect')}</button>
-        </div>
-      )}
-
       {/* Permission prompt bar */}
       {permissionPrompt && processKey && (
         <div className={`permission-bar ${permissionFailed ? 'permission-bar-failed' : ''}`}>
@@ -1151,7 +1210,19 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
         </div>
       )}
 
-      {/* Input bar */}
+      {!isConnected ? (
+        <div className="disconnected-action-bar">
+          <div className="disconnected-action-copy">
+            <span className={`status-dot ${isConnected ? 'dot-connected' : 'dot-offline'}`} />
+            <span className="disconnected-action-text">
+              {isPending ? t('conversation.newSessionNotConnected') : t('conversation.noMessagesConnect')}
+            </span>
+          </div>
+          <button className="btn btn-connect" onClick={handleConnect}>
+            {isPending ? t('conversation.connectStart') : t('conversation.connect')}
+          </button>
+        </div>
+      ) : (
       <div className="input-bar">
         <textarea ref={inputRef} className="chat-input" rows={1}
           placeholder={isConnected ? t('conversation.inputPlaceholder') : t('conversation.inputPlaceholderOffline')}
@@ -1191,9 +1262,16 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
             ))}
           </div>
         )}
+        {isBusy && (
+          <button className="btn btn-cancel" onClick={handleCancel} disabled={isCancellingTurn}>
+            {t('conversation.cancel')}
+          </button>
+        )}
+        {!isBusy && (
         <button className="btn" onClick={handleSend} disabled={(!inputValue.trim() && pendingImages.length === 0) || !isConnected || isSubmittingMessage}>
           {isSubmittingMessage ? '发送中...' : t('conversation.send')}
         </button>
+        )}
         <button className="upload-btn" onClick={async () => {
           if (isSubmittingMessage) return
           const imgs = await window.electronAPI.selectImages()
@@ -1203,6 +1281,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
         </button>
         <InputToolbar processKey={processKey} isConnected={isConnected} t={t} currentModel={currentModel} currentEffort={currentEffort} />
       </div>
+      )}
       {/* Image preview strip */}
       {pendingImages.length > 0 && (
         <div className="image-preview-strip">

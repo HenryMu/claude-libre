@@ -409,6 +409,23 @@ body {
   background: var(--danger) !important;
 }
 
+.btn-cancel {
+  background: var(--danger) !important;
+  color: #fff !important;
+  border-color: var(--danger) !important;
+  padding: 4px 10px;
+  animation: cancel-pulse 1.5s ease-in-out infinite;
+}
+
+.btn-cancel:hover {
+  opacity: 0.85;
+}
+
+@keyframes cancel-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(243, 139, 168, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(243, 139, 168, 0); }
+}
+
 /* Language switch */
 .lang-switch-wrapper,
 .theme-switch-wrapper {
@@ -929,6 +946,46 @@ body {
   border-bottom-color: var(--accent);
 }
 
+.tab-bar-spacer {
+  flex: 1;
+}
+
+.tab-bar-status-dot {
+  align-self: center;
+  margin-right: 10px;
+}
+
+.tab-bar-btn {
+  margin: 4px 10px 4px 0;
+  padding: 3px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: none;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.tab-bar-btn-connect {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.tab-bar-btn-connect:hover {
+  background: rgba(137, 180, 250, 0.12);
+}
+
+.tab-bar-btn-connected {
+  color: var(--text-muted);
+}
+
+.tab-bar-btn-connected:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 .tab-content {
   flex: 1;
   overflow: hidden;
@@ -1073,6 +1130,29 @@ body {
 }
 
 .chat-input::placeholder {
+  color: var(--text-muted);
+}
+
+.disconnected-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.disconnected-action-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.disconnected-action-text {
+  font-size: 13px;
   color: var(--text-muted);
 }
 

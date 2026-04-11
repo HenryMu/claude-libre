@@ -55,6 +55,7 @@
     "inputPlaceholderOffline": "连接后开始输入...",
     "send": "发送",
     "uploadImage": "上传图片",
+    "cancel": "取消 (Esc)",
     "thinking": "Claude 正在思考...",
     "runningTools": "Claude 正在执行工具...",
     "planning": "Claude 正在规划...",

@@ -47,7 +47,43 @@ export function useClaudeManager() {
       })
     })
 
-    return () => { unsubSpawned(); unsubExited() }
+    const unsubSessionCreated = window.electronAPI.onSessionCreated((data) => {
+      setActiveProcesses((prev) => {
+        let targetKey: string | null = null
+        for (let index = prev.length - 1; index >= 0; index -= 1) {
+          const process = prev[index]
+          if (process.projectSanitizedName === data.projectSanitizedName && process.sessionId == null) {
+            targetKey = process.processKey
+            break
+          }
+        }
+        if (!targetKey) return prev
+        return prev.map((process) => (
+          process.processKey === targetKey
+            ? { ...process, sessionId: data.meta.sessionId }
+            : process
+        ))
+      })
+
+      setConnections((prev) => {
+        let targetKey: string | null = null
+        for (const [processKey, connection] of Array.from(prev.entries()).reverse()) {
+          if (connection.projectSanitizedName === data.projectSanitizedName && connection.sessionId == null) {
+            targetKey = processKey
+            break
+          }
+        }
+        if (!targetKey) return prev
+        const next = new Map(prev)
+        const current = next.get(targetKey)
+        if (current) {
+          next.set(targetKey, { ...current, sessionId: data.meta.sessionId })
+        }
+        return next
+      })
+    })
+
+    return () => { unsubSpawned(); unsubExited(); unsubSessionCreated() }
   }, [])
 
   /** Connect to an existing session (resume) */
@@ -99,9 +135,6 @@ export function useClaudeManager() {
     return null
   }, [connections])
 
-  const activeCount = connections.size
-  const maxConnections = Infinity
-
   return {
     activeProcesses,
     connections,
@@ -109,8 +142,6 @@ export function useClaudeManager() {
     connectNew,
     disconnect,
     isConnected,
-    getProcessKey,
-    activeCount,
-    maxConnections
+    getProcessKey
   }
 }

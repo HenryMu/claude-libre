@@ -45,6 +45,7 @@ interface SessionState {
   selectedProject: string | null
   selectedSession: string | null
   selectProject: (name: string) => void
+  openProject: (name: string) => void
   selectSession: (project: string, sessionId: string) => void
   sessionDetails: SessionDetailsPayload | null
 }
@@ -57,8 +58,6 @@ interface ClaudeState {
   disconnect: (processKey: string) => Promise<void>
   isConnected: (sessionId: string | null) => boolean
   getProcessKey: (sessionId: string | null) => string | null
-  activeCount: number
-  maxConnections: number
 }
 
 interface MainContentProps {
@@ -67,21 +66,61 @@ interface MainContentProps {
   activeTab: TabType
   onTabChange: (tab: TabType) => void
   newSessionProcessKey: string | null
+  onStartConversation: (project: string, message: string, model: string) => Promise<void>
+  onAddProject: () => Promise<{ sanitizedName: string; realPath: string } | null>
 }
 
-export default function MainContent({ sessionState, claudeState, activeTab, onTabChange, newSessionProcessKey }: MainContentProps) {
+export default function MainContent({
+  sessionState,
+  claudeState,
+  activeTab,
+  onTabChange,
+  newSessionProcessKey,
+  onStartConversation,
+  onAddProject
+}: MainContentProps) {
   const { t } = useTranslation()
   const { selectedProject, selectedSession, sessionDetails, projects } = sessionState
   const project = projects.find((p) => p.sanitizedName === selectedProject)
 
   // Determine connection state for the selected session
-  const isSelectedConnected = claudeState.isConnected(selectedSession)
+  const pendingProcessKey = selectedSession?.startsWith('__pending_') ? newSessionProcessKey : null
   const selectedProcessKey = claudeState.getProcessKey(selectedSession)
+  const activeProcessKey = selectedProcessKey || pendingProcessKey
+  const isSelectedConnected = !!activeProcessKey || claudeState.isConnected(selectedSession)
   const isPending = selectedSession?.startsWith('__pending_') || false
 
   // For new session, the terminal uses newSessionProcessKey
-  const terminalProcessKey = newSessionProcessKey || selectedProcessKey
-  const terminalConnected = !!newSessionProcessKey || isSelectedConnected
+  const terminalProcessKey = activeProcessKey
+  const terminalConnected = !!terminalProcessKey
+
+  if (activeTab === 'conversation' && !selectedSession) {
+    return (
+      <div className="main-content">
+        <div className="tab-bar">
+          <button
+            className={`tab-item ${activeTab === 'conversation' ? 'active' : ''}`}
+            onClick={() => onTabChange('conversation')}
+          >
+            {t('tabs.conversation')}
+          </button>
+          <button
+            className={`tab-item ${activeTab === 'terminal' ? 'active' : ''}`}
+            onClick={() => onTabChange('terminal')}
+          >
+            {t('tabs.terminal')}
+          </button>
+        </div>
+        <DraftStartPane
+          project={project || null}
+          projects={projects}
+          onSelectProject={sessionState.openProject}
+          onAddProject={onAddProject}
+          onStartConversation={onStartConversation}
+        />
+      </div>
+    )
+  }
 
   if (!selectedProject || !project) {
     return (
@@ -116,7 +155,7 @@ export default function MainContent({ sessionState, claudeState, activeTab, onTa
             selectedSession={selectedSession}
             sessionDetails={sessionDetails}
             isConnected={isSelectedConnected}
-            processKey={selectedProcessKey}
+            processKey={activeProcessKey}
             isPending={isPending}
             claudeState={claudeState}
           />
@@ -138,6 +177,141 @@ export default function MainContent({ sessionState, claudeState, activeTab, onTa
 }
 
 // ===== Conversation Tab =====
+
+function DraftStartPane({
+  project,
+  projects,
+  onSelectProject,
+  onAddProject,
+  onStartConversation
+}: {
+  project: ProjectData | null
+  projects: ProjectData[]
+  onSelectProject: (name: string) => void
+  onAddProject: () => Promise<{ sanitizedName: string; realPath: string } | null>
+  onStartConversation: (project: string, message: string, model: string) => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [draftInput, setDraftInput] = useState('')
+  const [draftModel, setDraftModel] = useState('sonnet')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    textareaRef.current?.focus()
+  }, [project?.sanitizedName])
+
+  const handleSubmit = async () => {
+    if (!project || !draftInput.trim() || isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onStartConversation(project.sanitizedName, draftInput, draftModel)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const hasProjects = projects.length > 0
+  const projectName = project ? (project.realPath.split(/[/\\]/).pop() || project.realPath) : ''
+
+  return (
+    <div className="tab-pane draft-pane">
+      <div className="draft-shell">
+        <div className="draft-hero">
+          <span className="draft-kicker">{t('conversation.newDraftKicker')}</span>
+          <h2 className="draft-title">{t('conversation.newDraftTitle')}</h2>
+          <p className="draft-subtitle">{t('conversation.newDraftSubtitle')}</p>
+        </div>
+
+        <div className="draft-card">
+          <div className="draft-card-header">
+            <div>
+              <div className="draft-section-label">{t('conversation.workspace')}</div>
+              {project ? (
+                <>
+                  <div className="draft-project-name">{projectName}</div>
+                  <div className="draft-project-path">{project.realPath}</div>
+                </>
+              ) : (
+                <div className="draft-project-placeholder">{t('conversation.chooseProjectHint')}</div>
+              )}
+            </div>
+            <button
+              className="btn draft-folder-btn"
+              onClick={() => {
+                void onAddProject().then((result) => {
+                  if (result) onSelectProject(result.sanitizedName)
+                })
+              }}
+            >
+              {t('conversation.chooseFolder')}
+            </button>
+          </div>
+
+          {!project && hasProjects && (
+            <div className="draft-project-list">
+              {projects.map((item) => (
+                <button
+                  key={item.sanitizedName}
+                  className="draft-project-chip"
+                  onClick={() => onSelectProject(item.sanitizedName)}
+                >
+                  <span>{item.realPath.split(/[/\\]/).pop() || item.realPath}</span>
+                  <small>{item.realPath}</small>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="draft-section">
+            <div className="draft-section-label">{t('conversation.modelToUse')}</div>
+            <div className="draft-model-row">
+              {MODEL_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  className={`draft-model-chip ${draftModel === option.value ? 'active' : ''}`}
+                  onClick={() => setDraftModel(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="draft-section">
+            <div className="draft-section-label">{t('conversation.firstPrompt')}</div>
+            <textarea
+              ref={textareaRef}
+              className="draft-textarea"
+              placeholder={project ? t('conversation.newDraftPlaceholder') : t('conversation.newDraftPlaceholderNoProject')}
+              value={draftInput}
+              onChange={(e) => setDraftInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleSubmit()
+                }
+              }}
+            />
+          </div>
+
+          <div className="draft-actions">
+            <div className="draft-tip">
+              {project ? t('conversation.newDraftTipReady', { project: projectName }) : t('conversation.newDraftTipSelect')}
+            </div>
+            <button
+              className="btn btn-connect draft-submit-btn"
+              disabled={!project || !draftInput.trim() || isSubmitting}
+              onClick={() => void handleSubmit()}
+            >
+              {isSubmitting ? t('conversation.creatingSession') : t('conversation.sendAndCreate')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function ConversationTab({ project, realPath, selectedSession, sessionDetails, isConnected, processKey, isPending, claudeState }: {
   project: string
@@ -415,6 +589,11 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
           </div>
         ) : (
           <>
+            {isPending && isConnected && messages.length === 0 && (
+              <div className="draft-pending-banner">
+                <span className="thinking-label">{t('conversation.creatingSessionHint')}</span>
+              </div>
+            )}
             {messages.map((msg, i) => (
               <MessageItem key={msg.uuid || i} line={msg} project={project} />
             ))}
@@ -441,9 +620,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
       {!isConnected && !isPending && selectedSession && !selectedSession.startsWith('__pending_') && (
         <div className="connect-bar">
           <span className="connect-bar-text">{t('conversation.notConnected')}</span>
-          <button className="btn btn-connect" onClick={handleConnect}>
-            {t('conversation.connect')} ({claudeState.activeCount}/{claudeState.maxConnections})
-          </button>
+          <button className="btn btn-connect" onClick={handleConnect}>{t('conversation.connect')}</button>
           {connectError && <span className="connect-error">{connectError}</span>}
         </div>
       )}

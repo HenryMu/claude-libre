@@ -38,6 +38,12 @@ const PERMISSION_PATTERNS: RegExp[] = [
 const PERMISSION_TIMEOUT_MS = 30_000
 const CONFIRMATION_TIMEOUT_MS = 3_000
 const MAX_CONCURRENT_PROCESSES = Infinity
+const WORKSPACE_TRUST_MATCHERS = [
+  /Accessing workspace:/i,
+  /Quick safety check/i,
+  /Yes,\s*I trust this folder/i,
+  /Enter to confirm/i
+]
 
 const RESPONSE_STRATEGIES: Array<{ name: string; build: (char: string) => Array<string | null> }> = [
   { name: 'raw-char-then-enter', build: (char) => [char, '\r'] },
@@ -51,12 +57,14 @@ export class ClaudeManager {
   private processes: Map<string, ProcessEntry> = new Map()
   private mainWindow: BrowserWindow
   private ptyBuffers: Map<string, string> = new Map()
+  private workspaceTrustBuffers: Map<string, string> = new Map()
   private pendingPermissions: Map<string, PendingPermission> = new Map()
   private responseConfirm: Map<string, {
     strategyIndex: number
     response: string
     timer: ReturnType<typeof setTimeout>
   }> = new Map()
+  private workspaceTrustAttempts: Map<string, number> = new Map()
   private processCounter = 0
 
   constructor(mainWindow: BrowserWindow) {
@@ -131,6 +139,31 @@ export class ClaudeManager {
       }
     }
     if (buf.length > 8000) this.ptyBuffers.set(processKey, buf.slice(-3000))
+  }
+
+  private detectWorkspaceTrustPrompt(processKey: string, data: string): boolean {
+    let buf = this.workspaceTrustBuffers.get(processKey) || ''
+    buf += data
+    this.workspaceTrustBuffers.set(processKey, buf)
+
+    const stripped = this.stripAnsi(buf)
+    const recent = stripped.slice(-2000)
+    const isWorkspaceTrustPrompt = WORKSPACE_TRUST_MATCHERS.every((pattern) => pattern.test(recent))
+    if (!isWorkspaceTrustPrompt) {
+      if (buf.length > 8000) this.workspaceTrustBuffers.set(processKey, buf.slice(-3000))
+      return false
+    }
+
+    const attempts = this.workspaceTrustAttempts.get(processKey) || 0
+    if (attempts >= 2) return false
+
+    this.workspaceTrustAttempts.set(processKey, attempts + 1)
+    this.workspaceTrustBuffers.set(processKey, '')
+
+    const response = attempts === 0 ? '\r' : '1\r'
+    console.log(`[ClaudeDesktop:Main] Auto-confirm workspace trust with attempt ${attempts + 1}`)
+    setTimeout(() => this.writeRaw(processKey, response), 120)
+    return true
   }
 
   respondPermission(processKey: string, response: string): void {
@@ -249,6 +282,7 @@ export class ClaudeManager {
           }
         }
       }
+      if (this.detectWorkspaceTrustPrompt(processKey, data)) return
       this.detectPermission(processKey, data)
     })
 
@@ -306,6 +340,8 @@ export class ClaudeManager {
     const confirm = this.responseConfirm.get(processKey)
     if (confirm) { clearTimeout(confirm.timer); this.responseConfirm.delete(processKey) }
     this.ptyBuffers.delete(processKey)
+    this.workspaceTrustBuffers.delete(processKey)
+    this.workspaceTrustAttempts.delete(processKey)
   }
 
   write(processKey: string, data: string): void {

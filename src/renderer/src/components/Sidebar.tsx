@@ -139,7 +139,6 @@ export default function Sidebar({
           <LangSwitch />
           <button className="settings-btn" onClick={onAddProject} title={t('sidebar.addProject')}>+</button>
           <button className="settings-btn" onClick={onOpenSettings}>⚙</button>
-          <span className="connection-counter">{connections.size}/10</span>
         </div>
       </div>
       <div className="sidebar-content">

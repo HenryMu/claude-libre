@@ -141,6 +141,12 @@ export function useSessionWatcher() {
     setSessionDetails(null)
   }, [])
 
+  const openProject = useCallback((name: string) => {
+    setSelectedProject(name)
+    setSelectedSession(null)
+    setSessionDetails(null)
+  }, [])
+
   const selectSession = useCallback(
     (project: string, sessionId: string) => {
       setSelectedProject(project)
@@ -158,6 +164,17 @@ export function useSessionWatcher() {
     })
   }, [])
 
+  const removePendingSession = useCallback((sessionId: string) => {
+    setPendingSessions((prev) => {
+      if (!prev.has(sessionId)) return prev
+      const next = new Map(prev)
+      next.delete(sessionId)
+      return next
+    })
+    setSelectedSession((cur) => cur === sessionId ? null : cur)
+    setSessionDetails((prev) => prev?.meta?.sessionId === sessionId ? null : prev)
+  }, [])
+
   return {
     projects,
     pendingSessions,
@@ -165,7 +182,9 @@ export function useSessionWatcher() {
     selectedSession,
     sessionDetails,
     selectProject,
+    openProject,
     selectSession,
-    addPendingSession
+    addPendingSession,
+    removePendingSession
   }
 }

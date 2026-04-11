@@ -36,6 +36,9 @@
     "inputPlaceholderOffline": "Conecte-se para começar a digitar...",
     "send": "Enviar",
     "thinking": "Claude está pensando...",
+    "runningTools": "Claude está executando ferramentas...",
+    "planning": "Claude está planejando...",
+    "waitingPermission": "Aguardando confirmação de permissão...",
     "you": "Você",
     "claude": "Claude"
   },

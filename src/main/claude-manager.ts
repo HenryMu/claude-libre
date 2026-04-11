@@ -21,6 +21,12 @@ interface PendingPermission {
   prompt: string
   timestamp: number
   timer: ReturnType<typeof setTimeout>
+  options?: Array<{ label: string; value: string; kind?: 'allow' | 'deny' | 'secondary' }>
+}
+
+interface ParsedPermissionPrompt {
+  prompt: string
+  options?: Array<{ label: string; value: string; kind?: 'allow' | 'deny' | 'secondary' }>
 }
 
 const PERMISSION_PATTERNS: RegExp[] = [
@@ -92,6 +98,114 @@ export class ClaudeManager {
       .replace(/[\x00-\x09\x0b\x0c\x0e-\x1f]/g, '')
   }
 
+  private normalizeTerminalText(text: string): string {
+    return this.stripAnsi(text)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\u00a0/g, ' ')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+
+  private classifyPermissionOption(label: string): 'allow' | 'deny' | 'secondary' {
+    const normalized = label.toLowerCase()
+    if (/(^|\b)(no|deny|cancel|exit|reject)(\b|$)/i.test(normalized)) return 'deny'
+    if (/don't ask again|do not ask again|always|trust this folder/i.test(normalized)) return 'secondary'
+    return 'allow'
+  }
+
+  private parseNumberedPermissionPrompt(recent: string): ParsedPermissionPrompt | null {
+    const normalized = this.normalizeTerminalText(recent)
+    if (!normalized) return null
+
+    const lines = normalized
+      .split('\n')
+      .map((line) => line.replace(/\s+$/g, ''))
+
+    if (lines.length < 3) return null
+
+    const optionEntries: Array<{ lineIndex: number; value: string; label: string }> = []
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index].trim()
+      const match = line.match(/^(?:[❯>▶→*]\s*)?(\d+)\.\s+(.+?)$/)
+      if (!match) continue
+
+      const labelParts = [match[2].trim()]
+      let cursor = index + 1
+
+      while (cursor < lines.length) {
+        const nextLine = lines[cursor].trim()
+        if (!nextLine) {
+          cursor += 1
+          continue
+        }
+        if (/^(?:[❯>▶→*]\s*)?\d+\.\s+/.test(nextLine)) break
+        if (/enter to confirm|esc to cancel/i.test(nextLine)) break
+        labelParts.push(nextLine)
+        cursor += 1
+      }
+
+      optionEntries.push({
+        lineIndex: index,
+        value: match[1],
+        label: labelParts.join(' ')
+      })
+      index = cursor - 1
+    }
+
+    if (optionEntries.length < 2) return null
+
+    const firstOptionIndex = optionEntries[0].lineIndex
+    const promptCandidates = lines
+      .slice(Math.max(0, firstOptionIndex - 4), firstOptionIndex)
+      .map((line) => line.trim())
+      .filter((line) => line && !/^(?:enter to confirm|esc to cancel)$/i.test(line))
+
+    const promptLine = [...promptCandidates].reverse().find((line) => /[?？]\s*$/.test(line))
+      || promptCandidates[promptCandidates.length - 1]
+
+    if (!promptLine) return null
+
+    const options = optionEntries.map((entry) => ({
+      label: entry.label,
+      value: entry.value,
+      kind: this.classifyPermissionOption(entry.label)
+    }))
+
+    return { prompt: promptLine, options }
+  }
+
+  private emitPermissionPrompt(processKey: string, promptText: string, options?: Array<{ label: string; value: string; kind?: 'allow' | 'deny' | 'secondary' }>): void {
+    const entry = this.processes.get(processKey)
+    const project = entry?.projectSanitizedName || ''
+
+    console.log(`[ClaudeDesktop:Main] PERMISSION DETECTED: "${promptText}"`)
+
+    const timer = setTimeout(() => {
+      if (this.pendingPermissions.has(processKey)) {
+        this.pendingPermissions.delete(processKey)
+        this.send('permission-clear', { processKey })
+      }
+    }, PERMISSION_TIMEOUT_MS)
+
+    this.pendingPermissions.set(processKey, {
+      prompt: promptText,
+      timestamp: Date.now(),
+      timer,
+      options
+    })
+    this.ptyBuffers.set(processKey, '')
+    this.send('permission-prompt', {
+      processKey,
+      projectSanitizedName: project,
+      prompt: promptText,
+      timeout: PERMISSION_TIMEOUT_MS,
+      options
+    })
+  }
+
   private writeRaw(processKey: string, data: string): boolean {
     const entry = this.processes.get(processKey)
     if (!entry || entry.status !== 'running') {
@@ -116,8 +230,14 @@ export class ClaudeManager {
     buf += data
     this.ptyBuffers.set(processKey, buf)
 
-    const stripped = this.stripAnsi(buf)
-    const recent = stripped.slice(-1200)
+    const normalized = this.normalizeTerminalText(buf)
+    const recent = normalized.slice(-2000)
+
+    const numberedPrompt = this.parseNumberedPermissionPrompt(recent)
+    if (numberedPrompt) {
+      this.emitPermissionPrompt(processKey, numberedPrompt.prompt, numberedPrompt.options)
+      return
+    }
 
     for (const pattern of PERMISSION_PATTERNS) {
       const match = recent.match(pattern)
@@ -126,21 +246,7 @@ export class ClaudeManager {
         const start = Math.max(0, idx - 50)
         const end = Math.min(recent.length, idx + match[0].length + 200)
         const promptText = recent.slice(start, end).trim()
-        const entry = this.processes.get(processKey)
-        const project = entry?.projectSanitizedName || ''
-
-        console.log(`[ClaudeDesktop:Main] PERMISSION DETECTED: "${promptText}"`)
-
-        const timer = setTimeout(() => {
-          if (this.pendingPermissions.has(processKey)) {
-            this.pendingPermissions.delete(processKey)
-            this.send('permission-clear', { processKey })
-          }
-        }, PERMISSION_TIMEOUT_MS)
-
-        this.pendingPermissions.set(processKey, { prompt: promptText, timestamp: Date.now(), timer })
-        this.ptyBuffers.set(processKey, '')
-        this.send('permission-prompt', { processKey, projectSanitizedName: project, prompt: promptText, timeout: PERMISSION_TIMEOUT_MS })
+        this.emitPermissionPrompt(processKey, promptText)
         return
       }
     }
@@ -454,9 +560,13 @@ export class ClaudeManager {
       this.send('pty-data', { processKey, projectSanitizedName, data })
 
       if (this.responseConfirm.has(processKey)) {
-        const stripped = this.stripAnsi(data)
+        const normalized = this.normalizeTerminalText(data).slice(-800)
+        if (this.parseNumberedPermissionPrompt(normalized)) {
+          this.handleResponseRetry(processKey)
+          return
+        }
         for (const pattern of PERMISSION_PATTERNS) {
-          if (pattern.test(stripped.slice(-500))) {
+          if (pattern.test(normalized)) {
             this.handleResponseRetry(processKey)
             return
           }

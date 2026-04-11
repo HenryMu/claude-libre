@@ -731,6 +731,10 @@ body {
   padding: 12px 16px;
 }
 
+.turn-block {
+  margin-bottom: 18px;
+}
+
 .message-user {
   background: var(--user-bg);
   border: 1px solid var(--user-border);
@@ -786,6 +790,18 @@ body {
 
 .message-content p {
   margin: 4px 0;
+}
+
+.turn-duration {
+  display: inline-flex;
+  align-items: center;
+  margin: -4px 0 0 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
 }
 
 /* Thinking block */
@@ -952,6 +968,16 @@ body {
   border-radius: 8px;
   background: var(--assistant-bg);
   border: 1px solid var(--border);
+}
+
+.thinking-indicator-running_tools {
+  border-color: color-mix(in srgb, #f9e2af 45%, var(--border));
+  background: color-mix(in srgb, #f9e2af 8%, var(--assistant-bg));
+}
+
+.thinking-indicator-planning {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--assistant-bg));
 }
 
 .thinking-dots {
@@ -1165,16 +1191,42 @@ body {
   background: var(--bg-hover);
 }
 
+.command-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
 .command-name {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 12px;
   color: var(--accent);
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .command-desc {
   font-size: 11px;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-kind {
+  margin-left: 12px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
 }
 
 /* Message role */
@@ -1281,10 +1333,16 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
 }
 
 .tool-call.tool-error {
   border-color: var(--danger);
+}
+
+.tool-call.tool-call-plan {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--bg-secondary));
 }
 
 .tool-call-header {
@@ -1297,6 +1355,12 @@ body {
   font-size: 13px;
   user-select: none;
   transition: background 0.15s;
+}
+
+.tool-call-plan .tool-call-header {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 65%, transparent), transparent 60%),
+    var(--bg-tertiary);
 }
 
 .tool-call-header:hover {
@@ -1327,6 +1391,39 @@ body {
 .tool-expand {
   color: var(--text-muted);
   font-size: 10px;
+}
+
+.tool-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.tool-badge-plan {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.tool-badge-live {
+  background: color-mix(in srgb, #f9e2af 14%, transparent);
+  color: #f9e2af;
+  border: 1px solid color-mix(in srgb, #f9e2af 30%, transparent);
+}
+
+.tool-badge-error {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .tool-call-detail {
@@ -1364,6 +1461,52 @@ body {
   font-size: 11px;
   color: var(--text-muted);
   background: var(--bg-secondary);
+}
+
+.plan-call-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plan-call-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.plan-call-description {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.plan-chip-row,
+.plan-allowed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plan-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 42%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.plan-call-plan {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 45%, transparent);
+  padding: 12px;
 }
 
 .tool-result {
@@ -1417,6 +1560,8 @@ body {
   font-size: 12px;
   color: #f9e2af;
   font-family: 'Consolas', 'Monaco', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
   max-height: 80px;
   overflow-y: auto;
 }
@@ -1441,6 +1586,7 @@ body {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .permission-manual {
@@ -1485,6 +1631,35 @@ body {
   background: rgba(243, 139, 168, 0.08);
 }
 
+:root[data-theme='light'] .permission-bar {
+  border-top-color: rgba(181, 106, 42, 0.38);
+  background: linear-gradient(180deg, rgba(255, 247, 234, 0.96), rgba(250, 239, 220, 0.92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+:root[data-theme='light'] .permission-text {
+  color: #5b3716;
+}
+
+:root[data-theme='light'] .permission-countdown {
+  color: #8a4f22;
+  background: rgba(181, 106, 42, 0.14);
+}
+
+:root[data-theme='light'] .permission-manual-input {
+  background: rgba(255, 252, 246, 0.96);
+  border-color: #d8c5ad;
+}
+
+:root[data-theme='light'] .permission-manual-input:focus {
+  border-color: rgba(181, 106, 42, 0.55);
+  box-shadow: 0 0 0 3px rgba(181, 106, 42, 0.12);
+}
+
+:root[data-theme='light'] .permission-bar-failed {
+  background: linear-gradient(180deg, rgba(255, 242, 244, 0.95), rgba(251, 228, 232, 0.92));
+}
+
 .permission-failed-badge {
   color: var(--danger);
   font-size: 11px;
@@ -1517,6 +1692,15 @@ body {
 
 .btn-deny:hover {
   background: #eba0ac;
+}
+
+.btn-secondary {
+  background: var(--text-muted);
+  color: var(--bg-primary);
+}
+
+.btn-secondary:hover {
+  background: var(--text-secondary);
 }
 
 /* Button */

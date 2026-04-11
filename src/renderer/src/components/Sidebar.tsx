@@ -17,6 +17,17 @@ interface ContextMenuState {
   sessionId: string
 }
 
+interface ProjectContextMenuState {
+  x: number
+  y: number
+  sanitizedName: string
+}
+
+interface RenamingState {
+  project: string
+  sessionId: string
+}
+
 interface SidebarProps {
   projects: ProjectData[]
   pendingSessions: Map<string, SessionMeta>
@@ -28,6 +39,8 @@ interface SidebarProps {
   onSelectSession: (project: string, sessionId: string) => void
   onNewSession: (project: string) => void
   onOpenSettings: () => void
+  onAddProject: () => void
+  onDeleteProject: (projectSanitizedName: string) => void
 }
 
 export default function Sidebar({
@@ -40,11 +53,17 @@ export default function Sidebar({
   onSelectProject,
   onSelectSession,
   onNewSession,
-  onOpenSettings
+  onOpenSettings,
+  onAddProject,
+  onDeleteProject
 }: SidebarProps) {
   const { t } = useTranslation()
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
+  const [projectCtxMenu, setProjectCtxMenu] = useState<ProjectContextMenuState | null>(null)
+  const [renaming, setRenaming] = useState<RenamingState | null>(null)
+  const renameRef = useRef<HTMLInputElement>(null)
   const ctxRef = useRef<HTMLDivElement>(null)
+  const projectCtxRef = useRef<HTMLDivElement>(null)
 
   const connectedSessionIds = new Set<string>()
   for (const conn of connections.values()) {
@@ -53,12 +72,17 @@ export default function Sidebar({
 
   // Close context menu on click outside
   useEffect(() => {
-    const handler = () => setCtxMenu(null)
-    if (ctxMenu) {
+    const handler = (e: MouseEvent) => {
+      if (ctxRef.current?.contains(e.target as Node)) return
+      if (projectCtxRef.current?.contains(e.target as Node)) return
+      setCtxMenu(null)
+      setProjectCtxMenu(null)
+    }
+    if (ctxMenu || projectCtxMenu) {
       document.addEventListener('click', handler)
       return () => document.removeEventListener('click', handler)
     }
-  }, [ctxMenu])
+  }, [ctxMenu, projectCtxMenu])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, project: string, sessionId: string) => {
     e.preventDefault()
@@ -80,23 +104,32 @@ export default function Sidebar({
     setCtxMenu(null)
   }, [ctxMenu, t])
 
-  const handleRename = useCallback(async () => {
+  const handleRename = useCallback(() => {
     if (!ctxMenu) return
-    const { project, sessionId } = ctxMenu
-    // Find current title or firstUserMessage
-    const proj = projects.find(p => p.sanitizedName === project)
-    const session = proj?.sessions.find(s => s.sessionId === sessionId)
-    const currentTitle = session?.title || session?.firstUserMessage || ''
-    const newTitle = window.prompt(t('sidebar.renamePrompt'), currentTitle)
-    if (newTitle !== null && newTitle.trim()) {
-      try {
-        await window.electronAPI.renameSession(project, sessionId, newTitle.trim())
-      } catch (err) {
-        console.error('Failed to rename session:', err)
-      }
-    }
+    setRenaming({ project: ctxMenu.project, sessionId: ctxMenu.sessionId })
     setCtxMenu(null)
-  }, [ctxMenu, projects, t])
+  }, [ctxMenu])
+
+  const commitRename = useCallback(async (newTitle: string) => {
+    if (!renaming || !newTitle.trim()) {
+      setRenaming(null)
+      return
+    }
+    try {
+      await window.electronAPI.renameSession(renaming.project, renaming.sessionId, newTitle.trim())
+    } catch (err) {
+      console.error('Failed to rename session:', err)
+    }
+    setRenaming(null)
+  }, [renaming])
+
+  // Auto-focus rename input
+  useEffect(() => {
+    if (renaming) {
+      renameRef.current?.focus()
+      renameRef.current?.select()
+    }
+  }, [renaming])
 
   return (
     <div className="sidebar">
@@ -104,6 +137,7 @@ export default function Sidebar({
         <h2>CC-Desktop</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <LangSwitch />
+          <button className="settings-btn" onClick={onAddProject} title={t('sidebar.addProject')}>+</button>
           <button className="settings-btn" onClick={onOpenSettings}>⚙</button>
           <span className="connection-counter">{connections.size}/10</span>
         </div>
@@ -121,6 +155,11 @@ export default function Sidebar({
               <div
                 className={`project-header ${selectedProject === project.sanitizedName ? 'selected' : ''}`}
                 onClick={() => onSelectProject(project.sanitizedName)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setProjectCtxMenu({ x: e.clientX, y: e.clientY, sanitizedName: project.sanitizedName })
+                }}
               >
                 <span className={`project-arrow ${selectedProject === project.sanitizedName ? 'open' : ''}`}>
                   ▶
@@ -150,9 +189,24 @@ export default function Sidebar({
                       >
                         <span className={`status-dot ${isConnected ? 'dot-connected' : isPending ? 'dot-pending' : 'dot-offline'}`} />
                         <div className="session-info">
+                          {renaming?.sessionId === session.sessionId ? (
+                            <input
+                              ref={renameRef}
+                              className="rename-input"
+                              defaultValue={session.title || session.firstUserMessage || ''}
+                              onBlur={(e) => commitRename(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitRename(e.target.value)
+                                if (e.key === 'Escape') setRenaming(null)
+                                e.stopPropagation()
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
                           <div className="session-preview">
                             {isPending ? t('sidebar.pendingSession') : (session.title || session.firstUserMessage || t('sidebar.emptySession'))}
                           </div>
+                          )}
                           <div className="session-meta">
                             {!isPending && <span>{session.lastTimestamp ? formatTime(session.lastTimestamp) : ''}</span>}
                             {!isPending && <span>{session.userMessageCount + session.assistantMessageCount} {t('sidebar.msgs')}</span>}
@@ -170,7 +224,7 @@ export default function Sidebar({
         })}
       </div>
 
-      {/* Context menu */}
+      {/* Session context menu */}
       {ctxMenu && (
         <div
           ref={ctxRef}
@@ -183,6 +237,30 @@ export default function Sidebar({
           </button>
           <button className="context-menu-item danger" onClick={handleDelete}>
             {t('sidebar.delete')}
+          </button>
+        </div>
+      )}
+
+      {/* Project context menu */}
+      {projectCtxMenu && (
+        <div
+          ref={projectCtxRef}
+          className="context-menu"
+          style={{ top: projectCtxMenu.y, left: projectCtxMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="context-menu-item danger"
+            onClick={() => {
+              const project = projects.find(p => p.sanitizedName === projectCtxMenu.sanitizedName)
+              const path = project?.realPath || projectCtxMenu.sanitizedName
+              if (window.confirm(t('sidebar.confirmDeleteProject', { path }))) {
+                onDeleteProject(projectCtxMenu.sanitizedName)
+              }
+              setProjectCtxMenu(null)
+            }}
+          >
+            {t('sidebar.deleteProject')}
           </button>
         </div>
       )}

@@ -304,6 +304,42 @@ export class SessionWatcher {
     this.send('session-deleted', { projectSanitizedName: sanitizedName, sessionId })
   }
 
+  /** Add a project: create directory and register in index */
+  addProject(sanitizedName: string, realPath: string): void {
+    if (this.projectIndexes.has(sanitizedName)) {
+      // Already tracked — just emit to refresh UI
+      return
+    }
+    const dir = path.join(this.projectsDir, sanitizedName)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    this.projectIndexes.set(sanitizedName, {
+      sanitizedName,
+      realPath,
+      sessions: new Map()
+    })
+    this.send('project-added', { sanitizedName, realPath })
+  }
+
+  /** Delete a project: remove directory and clean up all index entries */
+  deleteProject(sanitizedName: string): void {
+    // Clean up file trackers for all sessions in this project
+    const prefix = path.join(this.projectsDir, sanitizedName) + path.sep
+    for (const [filePath] of this.fileTrackers) {
+      if (filePath.startsWith(prefix)) {
+        this.fileTrackers.delete(filePath)
+      }
+    }
+    this.projectIndexes.delete(sanitizedName)
+
+    // Remove directory from disk
+    const dir = path.join(this.projectsDir, sanitizedName)
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+
+    this.send('project-deleted', { sanitizedName })
+  }
+
   private parseFilePath(filePath: string): { sanitizedName: string; sessionId: string } | null {
     const relative = path.relative(this.projectsDir, filePath)
     const parts = relative.split(path.sep)

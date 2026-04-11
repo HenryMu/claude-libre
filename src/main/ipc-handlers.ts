@@ -1,13 +1,15 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import { SessionWatcher } from './session-watcher'
 import { ClaudeManager } from './claude-manager'
 import { readClaudeConfig, writeClaudeConfig, readConfigFile, writeConfigFile, listProfiles, saveProfile, deleteProfile } from './config-manager'
+import { sanitizePath } from './path-utils'
 import type { ClaudeConfig, ProfileData } from '../shared/types'
 
 export function registerIpcHandlers(
   sessionWatcher: SessionWatcher,
   claudeManager: ClaudeManager,
-  homeDir: string
+  homeDir: string,
+  mainWindow: BrowserWindow
 ): void {
   // ===== Claude process management =====
 
@@ -103,5 +105,26 @@ export function registerIpcHandlers(
 
   ipcMain.handle('rename-session', (_, projectSanitizedName: string, sessionId: string, title: string) => {
     sessionWatcher.updateSessionTitle(projectSanitizedName, sessionId, title)
+  })
+
+  // ===== Project management =====
+
+  ipcMain.handle('add-project', async () => {
+    const { dialog } = await import('electron')
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+
+    const selectedPath = result.filePaths[0]
+    const sanitizedName = sanitizePath(selectedPath)
+
+    sessionWatcher.addProject(sanitizedName, selectedPath)
+    return { sanitizedName, realPath: selectedPath }
+  })
+
+  ipcMain.handle('delete-project', async (_, projectSanitizedName: string) => {
+    await claudeManager.killByProject(projectSanitizedName)
+    sessionWatcher.deleteProject(projectSanitizedName)
   })
 }

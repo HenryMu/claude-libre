@@ -289,6 +289,17 @@ export class ClaudeManager {
     }
   }
 
+  /** Kill all running processes for a project */
+  async killByProject(projectSanitizedName: string): Promise<void> {
+    const keysToKill: string[] = []
+    for (const [key, entry] of this.processes) {
+      if (entry.projectSanitizedName === projectSanitizedName) {
+        keysToKill.push(key)
+      }
+    }
+    await Promise.all(keysToKill.map(key => this.killProcess(key)))
+  }
+
   private cleanProcessState(processKey: string): void {
     const pending = this.pendingPermissions.get(processKey)
     if (pending) { clearTimeout(pending.timer); this.pendingPermissions.delete(processKey) }

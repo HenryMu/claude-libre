@@ -24,6 +24,18 @@ const electronAPI: ElectronAPI = {
     return () => ipcRenderer.removeListener('session-deleted', handler)
   },
 
+  // Project events
+  onProjectAdded: (callback) => {
+    const handler = (_: unknown, data: unknown) => callback(data as any)
+    ipcRenderer.on('project-added', handler)
+    return () => ipcRenderer.removeListener('project-added', handler)
+  },
+  onProjectDeleted: (callback) => {
+    const handler = (_: unknown, data: unknown) => callback(data as any)
+    ipcRenderer.on('project-deleted', handler)
+    return () => ipcRenderer.removeListener('project-deleted', handler)
+  },
+
   // Terminal events — routed by processKey
   onPtyData: (callback) => {
     const handler = (_: unknown, data: unknown) => callback(data as any)
@@ -91,7 +103,11 @@ const electronAPI: ElectronAPI = {
 
   // Session management
   deleteSession: (projectSanitizedName, sessionId) => ipcRenderer.invoke('delete-session', projectSanitizedName, sessionId),
-  renameSession: (projectSanitizedName, sessionId, title) => ipcRenderer.invoke('rename-session', projectSanitizedName, sessionId, title)
+  renameSession: (projectSanitizedName, sessionId, title) => ipcRenderer.invoke('rename-session', projectSanitizedName, sessionId, title),
+
+  // Project management
+  addProject: () => ipcRenderer.invoke('add-project'),
+  deleteProject: (projectSanitizedName) => ipcRenderer.invoke('delete-project', projectSanitizedName)
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

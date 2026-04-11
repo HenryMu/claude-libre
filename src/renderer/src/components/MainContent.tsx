@@ -713,6 +713,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const [manualInput, setManualInput] = useState('')
   const [optimisticThinking, setOptimisticThinking] = useState(false)
   const [systemSuccessMsg, setSystemSuccessMsg] = useState<string | null>(null)
+  const [isSubmittingMessage, setIsSubmittingMessage] = useState(false)
   const [currentModel, setCurrentModel] = useState<string>('sonnet')
   const [currentEffort, setCurrentEffort] = useState<string>('medium')
   const [connectError, setConnectError] = useState<string | null>(null)
@@ -755,6 +756,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
     setSystemSuccessMsg(null)
     setPermissionPrompt(null)
     setConnectError(null)
+    setIsSubmittingMessage(false)
     setCurrentModel('sonnet')
     setCurrentEffort('medium')
     if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
@@ -891,11 +893,12 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   // Send message
   const handleSend = async () => {
     const text = inputValue.trim()
-    if ((!text && pendingImages.length === 0) || !processKey) return
+    if ((!text && pendingImages.length === 0) || !processKey || isSubmittingMessage) return
 
     setConnectError(null)
 
     if (pendingImages.length > 0) {
+      setIsSubmittingMessage(true)
       try {
         await window.electronAPI.submitMessage({
           processKey,
@@ -911,6 +914,8 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
       } catch (error) {
         const message = error instanceof Error ? error.message : '图片发送失败'
         setConnectError(message)
+      } finally {
+        setIsSubmittingMessage(false)
       }
       return
     }
@@ -1166,7 +1171,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
             }
             handleKeyDown(e)
           }}
-          disabled={!isConnected} />
+          disabled={!isConnected || isSubmittingMessage} />
         {/* Command autocomplete */}
         {autocompleteMode && autocompleteItems.length > 0 && (
           <div ref={cmdListRef} className="command-autocomplete">
@@ -1186,11 +1191,14 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
             ))}
           </div>
         )}
-        <button className="btn" onClick={handleSend} disabled={(!inputValue.trim() && pendingImages.length === 0) || !isConnected}>{t('conversation.send')}</button>
+        <button className="btn" onClick={handleSend} disabled={(!inputValue.trim() && pendingImages.length === 0) || !isConnected || isSubmittingMessage}>
+          {isSubmittingMessage ? '发送中...' : t('conversation.send')}
+        </button>
         <button className="upload-btn" onClick={async () => {
+          if (isSubmittingMessage) return
           const imgs = await window.electronAPI.selectImages()
           if (imgs.length > 0) setPendingImages(prev => [...prev, ...imgs])
-        }} disabled={!isConnected} title={t('conversation.uploadImage')}>
+        }} disabled={!isConnected || isSubmittingMessage} title={t('conversation.uploadImage')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
         </button>
         <InputToolbar processKey={processKey} isConnected={isConnected} t={t} currentModel={currentModel} currentEffort={currentEffort} />

@@ -468,7 +468,7 @@ export class ClaudeManager {
       COLORTERM: 'truecolor'
     } as Record<string, string>
 
-    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json']
+    const args = ['-p', '--verbose', '--input-format', 'stream-json', '--output-format', 'stream-json']
     if (entry.sessionId) {
       args.push('--resume', entry.sessionId)
     }

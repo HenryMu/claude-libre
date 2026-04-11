@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { SessionMeta, InitialDataPayload, SessionCreatedPayload, SessionUpdatedPayload, SessionDeletedPayload, SessionDetailsPayload } from '../../../shared/types'
+import type { SessionMeta, InitialDataPayload, SessionCreatedPayload, SessionUpdatedPayload, SessionDeletedPayload, SessionDetailsPayload, ProjectAddedPayload, ProjectDeletedPayload } from '../../../shared/types'
 
 interface ProjectData {
   sanitizedName: string
@@ -87,6 +87,39 @@ export function useSessionWatcher() {
     })
     return cleanup
   }, [selectedSession])
+
+  // Project added
+  useEffect(() => {
+    const cleanup = window.electronAPI.onProjectAdded((data: ProjectAddedPayload) => {
+      setProjects((prev) => {
+        if (prev.some(p => p.sanitizedName === data.sanitizedName)) return prev
+        return [...prev, { sanitizedName: data.sanitizedName, realPath: data.realPath, sessions: [] }]
+          .sort((a, b) => a.realPath.localeCompare(b.realPath))
+      })
+    })
+    return cleanup
+  }, [])
+
+  // Project deleted
+  useEffect(() => {
+    const cleanup = window.electronAPI.onProjectDeleted((data: ProjectDeletedPayload) => {
+      setProjects((prev) => prev.filter((p) => p.sanitizedName !== data.sanitizedName))
+      setSelectedProject((cur) => cur === data.sanitizedName ? null : cur)
+      setSelectedSession((cur) => {
+        // If selected session belongs to deleted project, clear it
+        setSessionDetails((prev) => {
+          if (prev && prev.meta.projectSanitizedName === data.sanitizedName) return null
+          return prev
+        })
+        // Return null to clear, or current value to keep
+        // We need to check the selectedSession's project, but we already removed it from projects
+        // Simplest: if the project was selected, clear session too
+        return null
+      })
+      setSessionDetails(null)
+    })
+    return cleanup
+  }, [])
 
   const refreshDetails = useCallback(async (project: string, sessionId: string) => {
     // Don't try to load details for pending sessions

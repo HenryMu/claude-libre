@@ -12,13 +12,26 @@
 
 ## Features
 
-- **Session Browser** — Automatically discovers all Claude Code projects and sessions from `~/.claude/projects/`
+- **Project & Session Browser** — Automatically discovers Claude Code projects and sessions from `~/.claude/projects/`
+- **Instant New Sessions** — Pick a workspace, choose a model, type your first prompt, and create a new session directly from the conversation page
 - **Real-time Sync** — Watches `.jsonl` session files for changes, auto-updates as conversations progress
 - **Conversation View** — Formatted message display with collapsible thinking blocks and tool call cards
+- **Code Tab** — Browse project files and inspect Claude Code `Write` / `Edit` changes with a Monaco-powered viewer and diff editor
 - **Terminal Integration** — Full `xterm.js` terminal for direct CLI interaction with Claude Code
 - **Session Resume** — Click any session to resume it via `claude --resume <session-id>`
-- **Permission Prompts** — Interactive Allow/Always/Deny buttons when Claude Code requests tool permissions
+- **Model & Effort Controls** — Switch models, set thinking effort, and use slash-command autocomplete from the input toolbar
+- **Smart Permission Handling** — Interactive Allow/Always/Deny controls plus automatic confirmation for Claude Code trusted-workspace prompts
+- **Themes** — Dark mode, polished light mode, and a system-following default with a quick theme switcher
+- **Profiles & Settings** — Manage Claude config and reusable profiles from the built-in settings panel
+- **Multilingual UI** — English, Simplified Chinese, Traditional Chinese, Japanese, Korean, Hindi, and Portuguese
 - **Cross-platform** — Works on Windows, macOS, and Linux
+
+## What's New in v1.0.2
+
+- Added system-aware light/dark theme switching with a refined light sidebar and message styling
+- Added a new-session draft panel: choose a folder, select a model, and send the first prompt to auto-create the session
+- Added Code tab support for project file browsing and Monaco-based edit/write previews
+- Added model/effort selectors, slash-command autocomplete, and improved permission/workspace confirmation handling
 
 ## Why This Project?
 
@@ -102,12 +115,15 @@ src/
         ├── App.tsx              # Root layout with tab state
         ├── components/
         │   ├── Sidebar.tsx      # Project tree + session list
-        │   └── MainContent.tsx  # Conversation + Terminal tabs
+        │   ├── MainContent.tsx  # Conversation + Terminal + Code tabs
+        │   ├── ThemeSwitch.tsx  # Light/dark/system theme switcher
+        │   ├── LangSwitch.tsx   # Language switcher
+        │   └── SettingsModal.tsx # Config editor + profile manager
         ├── hooks/
         │   ├── useSessionWatcher.ts  # Session data IPC listener
         │   └── useClaudeManager.ts   # PTY process management
         └── styles/
-            └── global.css       # Catppuccin dark theme
+            └── global.css       # Dark/light themes and app styling
 ```
 
 ## Tech Stack
@@ -118,8 +134,9 @@ src/
 | Build Tool | [electron-vite](https://electron-vite.org/) |
 | Frontend | [React](https://react.dev/) 19 + [TypeScript](https://www.typescriptlang.org/) |
 | Terminal | [xterm.js](https://xtermjs.org/) + [node-pty](https://github.com/microsoft/node-pty) |
+| Code Viewer | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | File Watching | [chokidar](https://github.com/paulmillr/chokidar) |
-| Styling | CSS (Catppuccin dark theme) |
+| Styling | CSS variables with dark, light, and system-aware themes |
 
 ## License
 

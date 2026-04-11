@@ -12,13 +12,26 @@
 
 ## 機能
 
-- **セッションブラウザ** — `~/.claude/projects/` からすべての Claude Code プロジェクトとセッションを自動検出
+- **プロジェクト / セッションブラウザ** — `~/.claude/projects/` から Claude Code のプロジェクトとセッションを自動検出
+- **即時の新規セッション作成** — ワークスペースを選び、モデルを選択し、最初のプロンプトを入力して会話画面から直接セッションを作成
 - **リアルタイム同期** — `.jsonl` セッションファイルの変更を監視し、会話の進行に合わせて自動更新
 - **会話ビュー** — 折りたたみ可能な思考ブロックとツール呼び出しカード付きのフォーマット済みメッセージ表示
+- **コードタブ** — プロジェクトファイルを閲覧し、Claude Code の `Write` / `Edit` 変更を Monaco ベースのビューア / Diff エディタで確認
 - **ターミナル統合** — Claude Code CLI と直接対話できるフル `xterm.js` ターミナル
 - **セッション再開** — クリックするだけで `claude --resume <session-id>` でセッションを再開
-- **権限プロンプト** — Claude Code がツール権限を要求した際に、Allow/Always/Deny ボタンをインタラクティブに表示
+- **モデル / 思考量の切り替え** — 入力ツールバーからモデル変更、思考量設定、スラッシュコマンド補完が可能
+- **スマートな権限処理** — Allow/Always/Deny 操作に加え、Claude Code の信頼済みワークスペース確認を自動処理
+- **テーマ** — ダークテーマ、洗練されたライトテーマ、システム連動のテーマ切り替えに対応
+- **設定とプロファイル** — 内蔵設定パネルで Claude 設定と再利用可能なプロファイルを管理
+- **多言語 UI** — 英語、簡体字中国語、繁体字中国語、日本語、韓国語、ヒンディー語、ポルトガル語に対応
 - **クロスプラットフォーム** — Windows、macOS、Linux に対応
+
+## v1.0.2 のハイライト
+
+- システム連動のライト / ダークテーマ切り替えと、ライトテーマのサイドバー / メッセージデザイン改善
+- フォルダ選択、モデル選択、初回プロンプト送信で自動作成できる新規セッション下書きパネルを追加
+- プロジェクトファイル閲覧と Monaco ベースの編集プレビューを行えるコードタブを追加
+- モデル / 思考量セレクタ、スラッシュコマンド補完、権限 / ワークスペース確認処理を改善
 
 ## なぜこのプロジェクトを作ったのか？
 
@@ -102,12 +115,15 @@ src/
         ├── App.tsx              # ルートレイアウトとタブ状態
         ├── components/
         │   ├── Sidebar.tsx      # プロジェクトツリー + セッションリスト
-        │   └── MainContent.tsx  # 会話 + ターミナルタブ
+        │   ├── MainContent.tsx  # 会話 + ターミナル + コードタブ
+        │   ├── ThemeSwitch.tsx  # ライト / ダーク / システムテーマ切り替え
+        │   ├── LangSwitch.tsx   # 言語切り替え
+        │   └── SettingsModal.tsx # 設定エディタ + プロファイル管理
         ├── hooks/
         │   ├── useSessionWatcher.ts  # セッションデータ IPC リスナー
         │   └── useClaudeManager.ts   # PTY プロセス管理
         └── styles/
-            └── global.css       # Catppuccin ダークテーマ
+            └── global.css       # ライト / ダークテーマと全体スタイル
 ```
 
 ## 技術スタック
@@ -118,8 +134,9 @@ src/
 | ビルドツール | [electron-vite](https://electron-vite.org/) |
 | フロントエンド | [React](https://react.dev/) 19 + [TypeScript](https://www.typescriptlang.org/) |
 | ターミナル | [xterm.js](https://xtermjs.org/) + [node-pty](https://github.com/microsoft/node-pty) |
+| コードビューア | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | ファイル監視 | [chokidar](https://github.com/paulmillr/chokidar) |
-| スタイリング | CSS（Catppuccin ダークテーマ） |
+| スタイリング | CSS 変数ベースのライト / ダーク / システムテーマ |
 
 ## ライセンス
 

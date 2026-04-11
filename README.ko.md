@@ -12,13 +12,26 @@
 
 ## 기능
 
-- **세션 브라우저** — `~/.claude/projects/`에서 모든 Claude Code 프로젝트와 세션을 자동으로 탐색
+- **프로젝트 / 세션 브라우저** — `~/.claude/projects/`에서 Claude Code 프로젝트와 세션을 자동으로 탐색
+- **즉시 새 세션 시작** — 워크스페이스를 고르고, 모델을 선택하고, 첫 프롬프트를 입력해 대화 화면에서 바로 새 세션을 생성
 - **실시간 동기화** — `.jsonl` 세션 파일의 변경 사항을 감시하여 대화 진행에 따라 자동 업데이트
 - **대화 뷰** — 접을 수 있는 사고 블록과 도구 호출 카드가 포함된 포맷된 메시지 표시
+- **코드 탭** — 프로젝트 파일을 탐색하고 Claude Code의 `Write` / `Edit` 변경 사항을 Monaco 기반 뷰어와 Diff 편집기로 확인
 - **터미널 통합** — Claude Code CLI와 직접 상호작용할 수 있는 완전한 `xterm.js` 터미널
 - **세션 재개** — 클릭 한 번으로 `claude --resume <session-id>`를 통해 세션 재개
-- **권한 프롬프트** — Claude Code가 도구 권한을 요청할 때 Allow/Always/Deny 버튼을 대화형으로 표시
+- **모델 / 사고 깊이 제어** — 입력 툴바에서 모델 전환, 사고 깊이 설정, 슬래시 명령 자동완성 지원
+- **스마트 권한 처리** — Allow/Always/Deny 제어와 함께 Claude Code의 신뢰 워크스페이스 확인 프롬프트를 자동 처리
+- **테마** — 다크 모드, 다듬어진 라이트 모드, 시스템 설정을 따르는 기본 테마 전환 지원
+- **설정 및 프로필** — 내장 설정 패널에서 Claude 설정과 재사용 가능한 프로필 관리
+- **다국어 UI** — 영어, 중국어 간체/번체, 일본어, 한국어, 힌디어, 포르투갈어 지원
 - **크로스 플랫폼** — Windows, macOS, Linux 지원
+
+## v1.0.2 하이라이트
+
+- 시스템 연동 라이트 / 다크 테마 전환과 함께 라이트 사이드바 및 메시지 스타일 개선
+- 폴더 선택, 모델 선택, 첫 프롬프트 전송으로 자동 생성되는 새 세션 초안 패널 추가
+- 프로젝트 파일 탐색과 Monaco 기반 편집 미리보기를 제공하는 코드 탭 추가
+- 모델 / 사고 깊이 선택기, 슬래시 명령 자동완성, 권한 / 워크스페이스 확인 처리 개선
 
 ## 왜 이 프로젝트를 만들었나요?
 
@@ -102,12 +115,15 @@ src/
         ├── App.tsx              # 루트 레이아웃과 탭 상태
         ├── components/
         │   ├── Sidebar.tsx      # 프로젝트 트리 + 세션 목록
-        │   └── MainContent.tsx  # 대화 + 터미널 탭
+        │   ├── MainContent.tsx  # 대화 + 터미널 + 코드 탭
+        │   ├── ThemeSwitch.tsx  # 라이트 / 다크 / 시스템 테마 전환
+        │   ├── LangSwitch.tsx   # 언어 전환
+        │   └── SettingsModal.tsx # 설정 편집기 + 프로필 관리
         ├── hooks/
         │   ├── useSessionWatcher.ts  # 세션 데이터 IPC 리스너
         │   └── useClaudeManager.ts   # PTY 프로세스 관리
         └── styles/
-            └── global.css       # Catppuccin 다크 테마
+            └── global.css       # 라이트 / 다크 테마와 전역 스타일
 ```
 
 ## 기술 스택
@@ -118,8 +134,9 @@ src/
 | 빌드 도구 | [electron-vite](https://electron-vite.org/) |
 | 프론트엔드 | [React](https://react.dev/) 19 + [TypeScript](https://www.typescriptlang.org/) |
 | 터미널 | [xterm.js](https://xtermjs.org/) + [node-pty](https://github.com/microsoft/node-pty) |
+| 코드 뷰어 | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | 파일 감시 | [chokidar](https://github.com/paulmillr/chokidar) |
-| 스타일링 | CSS (Catppuccin 다크 테마) |
+| 스타일링 | CSS 변수 기반 라이트 / 다크 / 시스템 테마 |
 
 ## 라이선스
 

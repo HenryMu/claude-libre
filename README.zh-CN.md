@@ -12,13 +12,26 @@
 
 ## 功能特性
 
-- **会话浏览器** — 自动发现 `~/.claude/projects/` 下的所有 Claude Code 项目和会话
+- **项目与会话浏览器** — 自动发现 `~/.claude/projects/` 下的 Claude Code 项目和会话
+- **即时新建会话** — 选择工作区、选择模型、输入第一条提示词，即可直接从会话页创建新会话
 - **实时同步** — 监听 `.jsonl` 会话文件变化，随对话进展自动更新
 - **对话视图** — 格式化消息展示，支持折叠的思考块和工具调用卡片
+- **代码标签页** — 浏览项目文件，并通过 Monaco 查看 Claude Code `Write` / `Edit` 变更和差异
 - **终端集成** — 完整的 `xterm.js` 终端，可直接与 Claude Code CLI 交互
 - **会话恢复** — 点击任意会话即可通过 `claude --resume <session-id>` 恢复
-- **权限提示** — 当 Claude Code 请求工具权限时，显示交互式的 Allow/Always/Deny 按钮
+- **模型与深度控制** — 在输入栏切换模型、设置思考深度，并支持斜杠命令自动补全
+- **智能权限处理** — 提供 Allow/Always/Deny 交互控制，并自动确认 Claude Code 的可信工作区提示
+- **主题** — 支持暗色模式、精致浅色模式，以及默认跟随系统主题的快速切换
+- **配置集与设置** — 内置设置面板，可管理 Claude 配置和可复用配置集
+- **多语言界面** — 支持英文、简体中文、繁体中文、日文、韩文、印地语和葡萄牙语
 - **跨平台** — 支持 Windows、macOS 和 Linux
+
+## v1.0.2 新增内容
+
+- 新增跟随系统的浅色/暗色主题切换，并优化浅色侧边栏与消息样式
+- 新增会话草稿面板：选择文件夹、选择模型、发送首条消息即可自动创建会话
+- 新增代码标签页，支持项目文件浏览和 Monaco 驱动的写入/编辑预览
+- 新增模型/思考深度选择、斜杠命令补全，并改进权限与工作区确认处理
 
 ## 为什么做这个项目？
 
@@ -102,12 +115,15 @@ src/
         ├── App.tsx              # 根布局与标签状态
         ├── components/
         │   ├── Sidebar.tsx      # 项目树 + 会话列表
-        │   └── MainContent.tsx  # 对话 + 终端标签页
+        │   ├── MainContent.tsx  # 对话 + 终端 + 代码标签页
+        │   ├── ThemeSwitch.tsx  # 浅色/暗色/跟随系统主题切换
+        │   ├── LangSwitch.tsx   # 语言切换
+        │   └── SettingsModal.tsx # 配置编辑器 + 配置集管理
         ├── hooks/
         │   ├── useSessionWatcher.ts  # 会话数据 IPC 监听
         │   └── useClaudeManager.ts   # PTY 进程管理
         └── styles/
-            └── global.css       # Catppuccin 暗色主题
+            └── global.css       # 暗色/浅色主题与全局样式
 ```
 
 ## 技术栈
@@ -118,8 +134,9 @@ src/
 | 构建工具 | [electron-vite](https://electron-vite.org/) |
 | 前端 | [React](https://react.dev/) 19 + [TypeScript](https://www.typescriptlang.org/) |
 | 终端 | [xterm.js](https://xtermjs.org/) + [node-pty](https://github.com/microsoft/node-pty) |
+| 代码查看器 | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
 | 文件监听 | [chokidar](https://github.com/paulmillr/chokidar) |
-| 样式 | CSS（Catppuccin 暗色主题） |
+| 样式 | CSS 变量，支持暗色、浅色和跟随系统主题 |
 
 ## 许可证
 

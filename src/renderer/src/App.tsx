@@ -12,6 +12,8 @@ function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
 }
 
+const WORKSPACE_TRUST_PATTERN = /Accessing workspace:|Quick safety check|Yes,\s*I trust this folder|Enter to confirm/i
+
 export default function App() {
   const sessionState = useSessionWatcher()
   const claudeState = useClaudeManager()
@@ -65,12 +67,12 @@ export default function App() {
 
     setNewSessionProcessKey(pk)
 
-    const waitForPtyMatch = (matcher: (text: string) => boolean, timeoutMs: number) =>
-      new Promise<boolean>((resolve) => {
+    const waitForPtyState = <T,>(matcher: (text: string) => T | null, timeoutMs: number) =>
+      new Promise<T | null>((resolve) => {
         let settled = false
         let cleanup = () => {}
 
-        const finish = (matched: boolean) => {
+        const finish = (matched: T | null) => {
           if (settled) return
           settled = true
           cleanup()
@@ -79,19 +81,31 @@ export default function App() {
 
         cleanup = window.electronAPI.onPtyData((payload) => {
           if (payload.processKey !== pk) return
-          if (matcher(stripAnsi(payload.data))) {
-            finish(true)
+          const matched = matcher(stripAnsi(payload.data))
+          if (matched !== null) {
+            finish(matched)
           }
         })
 
-        window.setTimeout(() => finish(false), timeoutMs)
+        window.setTimeout(() => finish(null), timeoutMs)
       })
 
-    await waitForPtyMatch((text) => text.trim().length > 0, 2500)
+    const firstState = await waitForPtyState<'trust' | 'output'>((text) => {
+      if (!text.trim()) return null
+      return WORKSPACE_TRUST_PATTERN.test(text) ? 'trust' : 'output'
+    }, 2500)
+
+    if (firstState === 'trust') {
+      await waitForPtyState<boolean>((text) => {
+        if (!text.trim()) return null
+        return WORKSPACE_TRUST_PATTERN.test(text) ? null : true
+      }, 5000)
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    }
 
     if (model && model !== 'sonnet') {
       window.electronAPI.ptyWrite(pk, `/model ${model}\r`)
-      await waitForPtyMatch((text) => /Set model to/i.test(text), 8000)
+      await waitForPtyState<boolean>((text) => (/Set model to/i.test(text) ? true : null), 8000)
     }
 
     window.electronAPI.ptyWrite(pk, `${trimmed}\r`)

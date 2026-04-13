@@ -82,6 +82,10 @@ export function registerIpcHandlers(
     claudeManager.respondPermission(processKey, response)
   })
 
+  ipcMain.on('set-full-auto', (_, processKey: string, enabled: boolean) => {
+    claudeManager.setFullAuto(processKey, enabled)
+  })
+
   ipcMain.handle('submit-message', async (_, request: SubmitMessageRequest) => {
     await claudeManager.submitMessage(request)
   })

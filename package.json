@@ -1,6 +1,6 @@
 {
   "name": "claude-libre",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "Claude Code session manager desktop app",
   "main": "./out/main/index.js",
   "scripts": {
@@ -35,7 +35,13 @@
     "win": {
       "icon": "logo.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64", "arm64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ]
     },
     "publish": {
@@ -46,7 +52,13 @@
     "mac": {
       "icon": "logo.icns",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.developer-tools"
     },
@@ -81,6 +93,8 @@
     "electron": "^34.0.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^3.0.0",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5",
     "typescript": "^5.7.0"
   }
 }

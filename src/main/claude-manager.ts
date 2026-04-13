@@ -18,6 +18,7 @@ interface ProcessEntry {
   status: 'spawning' | 'running' | 'exiting'
   cols: number
   rows: number
+  fullAuto: boolean
 }
 
 interface PendingPermission {
@@ -141,13 +142,16 @@ export class ClaudeManager {
     if (lines.length < 3) return null
 
     const optionEntries: Array<{ lineIndex: number; value: string; label: string }> = []
+    let hasCursor = false
 
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index].trim()
-      const match = line.match(/^(?:[❯>▶→*]\s*)?(\d+)\.\s+(.+?)$/)
+      const match = line.match(/^([❯>▶→*])?\s*(\d+)\.\s+(.+?)$/)
       if (!match) continue
 
-      const labelParts = [match[2].trim()]
+      if (match[1]) hasCursor = true
+
+      const labelParts = [match[3].trim()]
       let cursor = index + 1
 
       while (cursor < lines.length) {
@@ -164,13 +168,20 @@ export class ClaudeManager {
 
       optionEntries.push({
         lineIndex: index,
-        value: match[1],
+        value: match[2],
         label: labelParts.join(' ')
       })
       index = cursor - 1
     }
 
     if (optionEntries.length < 2) return null
+
+    // 有光标前缀 → 确定是权限菜单；无光标但选项同时含允许/拒绝 → 也视为权限菜单
+    if (!hasCursor) {
+      const hasAllow = optionEntries.some(e => this.classifyPermissionOption(e.label) === 'allow')
+      const hasDeny = optionEntries.some(e => this.classifyPermissionOption(e.label) === 'deny')
+      if (!hasAllow || !hasDeny) return null
+    }
 
     const firstOptionIndex = optionEntries[0].lineIndex
     const promptCandidates = lines
@@ -229,6 +240,22 @@ export class ClaudeManager {
     toolUseId?: string
   ): void {
     const entry = this.processes.get(processKey)
+    if (entry?.fullAuto) {
+      const pending: PendingPermission = {
+        source: 'stream-json',
+        prompt: promptText,
+        timestamp: Date.now(),
+        timer: null as unknown as ReturnType<typeof setTimeout>,
+        requestId,
+        toolUseId,
+        options: [
+          { label: 'Yes', value: '1', kind: 'allow' },
+          { label: 'No', value: '2', kind: 'deny' },
+        ]
+      }
+      this.respondToStructuredPermission(processKey, pending, '1')
+      return
+    }
     const project = entry?.projectSanitizedName || ''
 
     const timer = setTimeout(() => {
@@ -606,8 +633,27 @@ export class ClaudeManager {
     const normalized = this.normalizeTerminalText(buf)
     const recent = normalized.slice(-2000)
 
+    // ── DEBUG: 输出每次 onData 的关键信息 ──
+    const procEntry = this.processes.get(processKey)
+    if (procEntry?.fullAuto) {
+      const hasEscCancel = /Esc to cancel/i.test(recent)
+      if (hasEscCancel || /(?:do you want|allow|proceed)\?/i.test(recent) || /^\s*\d+\.\s+/m.test(recent)) {
+        console.log(`[CCD-DEBUG] detectPermission fullAuto=true | bufLen=${buf.length} | recentLen=${recent.length}`)
+        console.log(`[CCD-DEBUG] hasEscCancel=${hasEscCancel}`)
+        console.log(`[CCD-DEBUG] normalized recent:\n${recent.slice(-800)}`)
+      }
+    }
+
     const numberedPrompt = this.parseNumberedPermissionPrompt(recent)
     if (numberedPrompt) {
+      console.log(`[CCD-DEBUG] numberedPrompt MATCHED: "${numberedPrompt.prompt}" | fullAuto=${procEntry?.fullAuto}`)
+      if (procEntry?.fullAuto) {
+        const allowOption = numberedPrompt.options?.find(o => o.kind === 'allow')
+        const response = (allowOption ? allowOption.value : '1') + '\r'
+        this.ptyBuffers.set(processKey, '')
+        setTimeout(() => this.writeRaw(processKey, response), 100)
+        return
+      }
       this.emitPermissionPrompt(processKey, numberedPrompt.prompt, numberedPrompt.options)
       return
     }
@@ -615,6 +661,12 @@ export class ClaudeManager {
     for (const pattern of PERMISSION_PATTERNS) {
       const match = recent.match(pattern)
       if (match) {
+        console.log(`[CCD-DEBUG] PERMISSION_PATTERN matched: "${match[0].slice(0, 80)}" | fullAuto=${procEntry?.fullAuto}`)
+        if (procEntry?.fullAuto) {
+          this.ptyBuffers.set(processKey, '')
+          setTimeout(() => this.writeRaw(processKey, 'y\r'), 100)
+          return
+        }
         const idx = match.index || 0
         const start = Math.max(0, idx - 50)
         const end = Math.min(recent.length, idx + match[0].length + 200)
@@ -623,6 +675,35 @@ export class ClaudeManager {
         return
       }
     }
+
+    // 兜底：Claude Code 所有交互式提示底部都有 "Esc to cancel"
+    // 只要有这个标志就说明当前在等待用户确认
+    if (/Esc to cancel/i.test(recent)) {
+      console.log(`[CCD-DEBUG] Esc to cancel FALLBACK | fullAuto=${procEntry?.fullAuto}`)
+      if (procEntry?.fullAuto) {
+        // 尝试发送编号选项 "1"（通常是 Yes），如果编号解析失败则发 y
+        const numberedRetry = this.parseNumberedPermissionPrompt(recent)
+        const response = numberedRetry
+          ? (numberedRetry.options?.find(o => o.kind === 'allow')?.value || '1') + '\r'
+          : 'y\r'
+        console.log(`[CCD-DEBUG] Esc fallback response: "${response}" | numberedRetry=${!!numberedRetry}`)
+        this.ptyBuffers.set(processKey, '')
+        setTimeout(() => this.writeRaw(processKey, response), 100)
+        return
+      }
+      // 提取提示文本：从 "Esc to cancel" 往上找最近的问号行
+      const escIdx = recent.lastIndexOf('Esc to cancel')
+      if (escIdx > 0) {
+        const beforeEsc = recent.slice(0, escIdx).trimEnd()
+        // 找最后一个问号行作为提示
+        const lines = beforeEsc.split('\n').map(l => l.trim()).filter(Boolean)
+        const questionLine = [...lines].reverse().find(l => /[?？]\s*$/.test(l))
+        const promptText = questionLine || lines[lines.length - 1] || 'Permission required'
+        this.emitPermissionPrompt(processKey, promptText)
+        return
+      }
+    }
+
     if (buf.length > 8000) this.ptyBuffers.set(processKey, buf.slice(-3000))
   }
 
@@ -959,7 +1040,8 @@ export class ClaudeManager {
 
     const entry: ProcessEntry = {
       pty: ptyProcess, processKey, projectSanitizedName, sessionId,
-      cwd: resolvedPath, status: 'running', cols: cols || 80, rows: rows || 24
+      cwd: resolvedPath, status: 'running', cols: cols || 80, rows: rows || 24,
+      fullAuto: false
     }
     this.processes.set(processKey, entry)
 
@@ -1051,6 +1133,12 @@ export class ClaudeManager {
     if (!entry) return
     entry.cols = cols; entry.rows = rows
     try { entry.pty.resize(cols, rows) } catch {}
+  }
+
+  setFullAuto(processKey: string, enabled: boolean): void {
+    const entry = this.processes.get(processKey)
+    console.log(`[CCD-DEBUG] setFullAuto: key=${processKey} enabled=${enabled} entry=${!!entry}`)
+    if (entry) entry.fullAuto = enabled
   }
 
   isRunning(processKey: string): boolean {

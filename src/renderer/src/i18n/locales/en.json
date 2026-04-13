@@ -119,7 +119,12 @@
   },
   "toolbar": {
     "model": "Model",
-    "effort": "Effort"
+    "effort": "Effort",
+    "permMode": "Mode",
+    "permNormal": "Normal",
+    "permAuto": "Auto Allow",
+    "permFullAuto": "Full Auto",
+    "permPlan": "Plan"
   },
   "commands": {
     "/model": "Switch model",

@@ -241,6 +241,7 @@ export interface ElectronAPI {
   ptyWrite: (processKey: string, data: string) => void
   ptyResize: (processKey: string, cols: number, rows: number) => void
   respondPermission: (processKey: string, response: string) => void
+  setFullAuto: (processKey: string, enabled: boolean) => void
   submitMessage: (request: SubmitMessageRequest) => Promise<void>
 
   // Queries

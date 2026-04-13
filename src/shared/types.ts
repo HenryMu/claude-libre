@@ -265,10 +265,15 @@ export interface ElectronAPI {
   // Project management
   addProject: () => Promise<{ sanitizedName: string; realPath: string } | null>
   deleteProject: (projectSanitizedName: string) => Promise<void>
+  revealInFileManager: (dirPath: string) => Promise<void>
 
   // File browsing
   readDir: (dirPath: string) => Promise<FileNode[]>
   readFile: (filePath: string) => Promise<string>
+  writeFile: (filePath: string, content: string) => Promise<void>
+  deleteFile: (targetPath: string) => Promise<void>
+  renameFile: (oldPath: string, newPath: string) => Promise<void>
+  revealItem: (itemPath: string) => Promise<void>
 
   // Image upload
   selectImages: () => Promise<ImageAttachment[]>

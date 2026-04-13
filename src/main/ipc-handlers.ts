@@ -169,6 +169,11 @@ export function registerIpcHandlers(
     sessionWatcher.deleteProject(projectSanitizedName)
   })
 
+  ipcMain.handle('reveal-in-file-manager', async (_, dirPath: string) => {
+    const { shell } = require('electron')
+    await shell.openPath(dirPath)
+  })
+
   // ===== File browsing =====
 
   ipcMain.handle('read-dir', (_, dirPath: string): FileNode[] => {
@@ -180,6 +185,34 @@ export function registerIpcHandlers(
       return fs.readFileSync(filePath, 'utf-8')
     } catch (e: any) {
       return `[Error reading file: ${e.message}]`
+    }
+  })
+
+  ipcMain.handle('write-file', (_, filePath: string, content: string): void => {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, content, 'utf-8')
+  })
+
+  ipcMain.handle('delete-file', (_, targetPath: string): void => {
+    const stat = fs.statSync(targetPath)
+    if (stat.isDirectory()) {
+      fs.rmSync(targetPath, { recursive: true, force: true })
+    } else {
+      fs.unlinkSync(targetPath)
+    }
+  })
+
+  ipcMain.handle('rename-file', (_, oldPath: string, newPath: string): void => {
+    fs.renameSync(oldPath, newPath)
+  })
+
+  ipcMain.handle('reveal-item', async (_, itemPath: string) => {
+    const { shell } = require('electron')
+    const stat = fs.statSync(itemPath)
+    if (stat.isFile()) {
+      await shell.showItemInFolder(itemPath)
+    } else {
+      await shell.openPath(itemPath)
     }
   })
 

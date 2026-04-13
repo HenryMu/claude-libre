@@ -112,10 +112,15 @@ const electronAPI: ElectronAPI = {
   // Project management
   addProject: () => ipcRenderer.invoke('add-project'),
   deleteProject: (projectSanitizedName) => ipcRenderer.invoke('delete-project', projectSanitizedName),
+  revealInFileManager: (dirPath: string) => ipcRenderer.invoke('reveal-in-file-manager', dirPath),
 
   // File browsing
   readDir: (dirPath) => ipcRenderer.invoke('read-dir', dirPath),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+  writeFile: (filePath: string, content: string) => ipcRenderer.invoke('write-file', filePath, content),
+  deleteFile: (targetPath: string) => ipcRenderer.invoke('delete-file', targetPath),
+  renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('rename-file', oldPath, newPath),
+  revealItem: (itemPath: string) => ipcRenderer.invoke('reveal-item', itemPath),
 
   // Image upload
   selectImages: () => ipcRenderer.invoke('select-images')

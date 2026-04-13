@@ -251,6 +251,16 @@ export default function Sidebar({
           onClick={(e) => e.stopPropagation()}
         >
           <button
+            className="context-menu-item"
+            onClick={() => {
+              const project = projects.find(p => p.sanitizedName === projectCtxMenu.sanitizedName)
+              if (project?.realPath) window.electronAPI.revealInFileManager(project.realPath)
+              setProjectCtxMenu(null)
+            }}
+          >
+            {t('sidebar.openInFileManager')}
+          </button>
+          <button
             className="context-menu-item danger"
             onClick={() => {
               const project = projects.find(p => p.sanitizedName === projectCtxMenu.sanitizedName)

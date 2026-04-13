@@ -18,12 +18,33 @@
     "pendingSession": "新会话（未连接）",
     "addProject": "添加项目",
     "deleteProject": "删除项目",
+    "openInFileManager": "在文件管理器中打开",
     "confirmDeleteProject": "确定删除项目 \"{{path}}\"？所有会话将被永久删除。"
   },
   "tabs": {
     "conversation": "会话",
     "terminal": "终端",
     "code": "代码"
+  },
+  "codeTab": {
+    "openInFileManager": "在文件管理器中打开",
+    "rename": "重命名",
+    "delete": "删除",
+    "confirmDelete": "确定删除 \"{{name}}\"？",
+    "newFileName": "新名称：",
+    "saved": "已保存",
+    "saveError": "保存失败",
+    "deleted": "已删除",
+    "deleteError": "删除失败",
+    "renamed": "已重命名",
+    "renameError": "重命名失败",
+    "noFileSelected": "选择一个文件查看内容",
+    "copyPath": "复制路径",
+    "copyRelativePath": "复制相对路径",
+    "pathCopied": "路径已复制",
+    "newFile": "新建文件",
+    "newFolder": "新建文件夹",
+    "newItemName": "名称："
   },
   "conversation": {
     "selectProject": "选择一个项目查看会话",

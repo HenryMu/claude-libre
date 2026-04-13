@@ -575,6 +575,7 @@ export default function MainContent({
             realPath={project.realPath}
             codeViewContext={codeViewContext}
             onClearCodeView={onClearCodeView}
+            isActive={activeTab === 'code'}
           />
         </div>
       </div>
@@ -750,6 +751,8 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const [caretIndex, setCaretIndex] = useState(0)
   const [pendingStuck, setPendingStuck] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const historyRef = useRef<HTMLDivElement>(null)
+  const [scrolledUp, setScrolledUp] = useState(false)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const successMsgRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const cancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -768,6 +771,18 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
     }),
     [turns, permissionPrompt, optimisticThinking, allowLiveTurnState, isConnected]
   )
+
+  // Detect scroll position in conversation
+  useEffect(() => {
+    const el = historyRef.current
+    if (!el) return
+    const check = () => {
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
+      setScrolledUp(!atBottom)
+    }
+    el.addEventListener('scroll', check, { passive: true })
+    return () => el.removeEventListener('scroll', check)
+  }, [selectedSession])
 
   // Auto-scroll
   useEffect(() => {
@@ -1166,7 +1181,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
   return (
     <div className="tab-pane history-pane">
-      <div className="history-messages">
+      <div className="history-messages" ref={historyRef}>
         {isPending && !isConnected ? (
           <div className="empty-state" style={{ padding: 40 }}>
             <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>{t('conversation.newSessionNotConnected')}</p>
@@ -1354,6 +1369,13 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
           ))}
         </div>
       )}
+
+      {/* Scroll to bottom button */}
+      {scrolledUp && (
+        <button className="scroll-bottom-btn" onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+      )}
     </div>
   )
 }
@@ -1432,6 +1454,17 @@ function TerminalPane({ processKey, project }: { processKey: string; project: st
       term.onData((data: string) => {
         window.electronAPI.ptyWrite(processKey, data)
       })
+
+      // Right-click to copy selected text
+      if (terminalRef.current) {
+        terminalRef.current.addEventListener('contextmenu', (e: MouseEvent) => {
+          e.preventDefault()
+          const selection = term?.getSelection()
+          if (selection) {
+            navigator.clipboard.writeText(selection)
+          }
+        })
+      }
 
       const observer = new ResizeObserver(() => {
         if (fitAddon) {
@@ -1851,38 +1884,74 @@ function FileTreeNode({
   depth,
   selectedFile,
   onSelect,
+  onContextMenu,
+  renaming,
+  renameRef,
+  commitRename,
+  onCancelRename,
 }: {
   node: FileNode
   depth: number
   selectedFile: string | null
   onSelect: (node: FileNode) => void
+  onContextMenu: (e: React.MouseEvent, node: FileNode) => void
+  renaming: boolean
+  renameRef: React.RefObject<HTMLInputElement | null>
+  commitRename: (name: string) => void
+  onCancelRename: () => void
 }) {
   const [expanded, setExpanded] = useState(depth === 0)
+
+  const renameRow = (
+    <div
+      className={`filetree-file filetree-file-active`}
+      style={{ paddingLeft: depth * 12 + 8 }}
+    >
+      <span className="filetree-icon">{node.isDir ? '📁' : fileIcon(node)}</span>
+      <input
+        ref={renameRef}
+        className="rename-input"
+        defaultValue={node.name}
+        onBlur={(e) => commitRename(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commitRename(e.target.value)
+          if (e.key === 'Escape') onCancelRename()
+          e.stopPropagation()
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => e.stopPropagation()}
+      />
+    </div>
+  )
 
   if (node.isDir) {
     return (
       <div>
-        <div
-          className="filetree-dir"
-          style={{ paddingLeft: depth * 12 + 8 }}
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className="filetree-arrow">{expanded ? '▾' : '▸'}</span>
-          <span className="filetree-icon">📁</span>
-          <span className="filetree-name">{node.name}</span>
-        </div>
+        {renaming ? renameRow : (
+          <div
+            className="filetree-dir"
+            style={{ paddingLeft: depth * 12 + 8 }}
+            onClick={() => setExpanded(!expanded)}
+            onContextMenu={(e) => onContextMenu(e, node)}
+          >
+            <span className="filetree-arrow">{expanded ? '▾' : '▸'}</span>
+            <span className="filetree-icon">📁</span>
+            <span className="filetree-name">{node.name}</span>
+          </div>
+        )}
         {expanded && node.children?.map((child) => (
-          <FileTreeNode key={child.path} node={child} depth={depth + 1} selectedFile={selectedFile} onSelect={onSelect} />
+          <FileTreeNode key={child.path} node={child} depth={depth + 1} selectedFile={selectedFile} onSelect={onSelect} onContextMenu={onContextMenu} renaming={false} renameRef={renameRef} commitRename={commitRename} onCancelRename={onCancelRename} />
         ))}
       </div>
     )
   }
 
-  return (
+  return renaming ? renameRow : (
     <div
       className={`filetree-file ${selectedFile === node.path ? 'filetree-file-active' : ''}`}
       style={{ paddingLeft: depth * 12 + 8 }}
       onClick={() => onSelect(node)}
+      onContextMenu={(e) => onContextMenu(e, node)}
     >
       <span className="filetree-icon">{fileIcon(node)}</span>
       <span className="filetree-name">{node.name}</span>
@@ -1894,35 +1963,221 @@ function CodeTab({
   realPath,
   codeViewContext,
   onClearCodeView,
+  isActive,
 }: {
   realPath: string
   codeViewContext: CodeViewContext | null
   onClearCodeView: () => void
+  isActive: boolean
 }) {
+  const { t } = useTranslation()
+  const treeBodyRef = useRef<HTMLDivElement>(null)
+  const renameRef = useRef<HTMLInputElement>(null)
   const [fileTree, setFileTree] = useState<FileNode[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string>('')
+  const [savedContent, setSavedContent] = useState<string>('')
   const [fileLoading, setFileLoading] = useState(false)
+  const [isDirty, setIsDirty] = useState(false)
+  const [saveToast, setSaveToast] = useState<string | null>(null)
+  const [fileCtxMenu, setFileCtxMenu] = useState<{ x: number; y: number; node: FileNode } | null>(null)
+  const [blankCtxMenu, setBlankCtxMenu] = useState<{ x: number; y: number } | null>(null)
+  const [renaming, setRenaming] = useState<{ path: string; isDir: boolean; parentDir: string } | null>(null)
+  const [creatingItem, setCreatingItem] = useState<{ dir: string; isDir: boolean } | null>(null)
   const projectName = realPath.split(/[/\\]/).pop() || realPath
 
-  // Load tree when realPath changes
-  useEffect(() => {
-    setFileTree([])
+  const refreshTree = useCallback(() => {
     window.electronAPI.readDir(realPath).then(setFileTree).catch(() => setFileTree([]))
   }, [realPath])
+
+  // Load tree when realPath changes or tab becomes active
+  useEffect(() => {
+    if (!isActive) return
+    refreshTree()
+  }, [realPath, isActive, refreshTree])
+
+  // Close context menus on click outside (use capture to catch before React)
+  useEffect(() => {
+    if (!fileCtxMenu && !blankCtxMenu) return
+    const handler = (e: MouseEvent) => {
+      // Don't close if clicking inside a context menu
+      const target = e.target as HTMLElement
+      if (target.closest('.context-menu')) return
+      setFileCtxMenu(null)
+      setBlankCtxMenu(null)
+    }
+    window.addEventListener('mousedown', handler, true)
+    return () => window.removeEventListener('mousedown', handler, true)
+  }, [fileCtxMenu, blankCtxMenu])
+
+  // Auto-focus rename/creating input
+  useEffect(() => {
+    if (renaming || creatingItem) {
+      setTimeout(() => renameRef.current?.focus(), 50)
+    }
+  }, [renaming, creatingItem])
 
   const handleSelectFile = useCallback(async (node: FileNode) => {
     if (node.isDir) return
     setSelectedFile(node.path)
     onClearCodeView()
     setFileLoading(true)
+    setIsDirty(false)
     try {
       const content = await window.electronAPI.readFile(node.path)
       setFileContent(content)
+      setSavedContent(content)
     } finally {
       setFileLoading(false)
     }
   }, [onClearCodeView])
+
+  // Ctrl+S / Cmd+S save
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault()
+        if (!selectedFile || !isDirty) return
+        window.electronAPI.writeFile(selectedFile, fileContent)
+          .then(() => {
+            setSavedContent(fileContent)
+            setIsDirty(false)
+            setSaveToast(t('codeTab.saved'))
+            setTimeout(() => setSaveToast(null), 1500)
+          })
+          .catch((err) => {
+            setSaveToast(t('codeTab.saveError') + ': ' + err.message)
+            setTimeout(() => setSaveToast(null), 3000)
+          })
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isActive, selectedFile, isDirty, fileContent, t])
+
+  const handleEditorChange = useCallback((value: string | undefined) => {
+    const newContent = value ?? ''
+    setFileContent(newContent)
+    setIsDirty(newContent !== savedContent)
+  }, [savedContent])
+
+  // File tree context menu
+  const handleFileContextMenu = useCallback((e: React.MouseEvent, node: FileNode) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setBlankCtxMenu(null)
+    setFileCtxMenu({ x: e.clientX, y: e.clientY, node })
+  }, [])
+
+  // Blank area context menu
+  const handleBlankContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setFileCtxMenu(null)
+    setBlankCtxMenu({ x: e.clientX, y: e.clientY })
+  }, [])
+
+  const handleRevealItem = useCallback(() => {
+    if (!fileCtxMenu) return
+    window.electronAPI.revealItem(fileCtxMenu.node.path)
+    setFileCtxMenu(null)
+  }, [fileCtxMenu])
+
+  const handleCopyPath = useCallback(() => {
+    if (!fileCtxMenu) return
+    navigator.clipboard.writeText(fileCtxMenu.node.path)
+    setSaveToast(t('codeTab.pathCopied'))
+    setTimeout(() => setSaveToast(null), 1200)
+    setFileCtxMenu(null)
+  }, [fileCtxMenu, t])
+
+  const handleCopyRelativePath = useCallback(() => {
+    if (!fileCtxMenu) return
+    const normalizedNode = fileCtxMenu.node.path.replace(/\\/g, '/')
+    const normalizedRoot = realPath.replace(/\\/g, '/')
+    const rel = normalizedNode.startsWith(normalizedRoot + '/')
+      ? normalizedNode.slice(normalizedRoot.length + 1)
+      : normalizedNode
+    navigator.clipboard.writeText(rel)
+    setSaveToast(t('codeTab.pathCopied'))
+    setTimeout(() => setSaveToast(null), 1200)
+    setFileCtxMenu(null)
+  }, [fileCtxMenu, realPath, t])
+
+  const handleRenameStart = useCallback(() => {
+    if (!fileCtxMenu) return
+    const node = fileCtxMenu.node
+    const parentDir = node.path.replace(/[\\/][^\\/]+$/, '')
+    setRenaming({ path: node.path, isDir: node.isDir, parentDir })
+    setFileCtxMenu(null)
+  }, [fileCtxMenu])
+
+  const commitRename = useCallback(async (newName: string) => {
+    if (!renaming || !newName.trim()) { setRenaming(null); return }
+    const oldPath = renaming.path
+    const newPath = renaming.parentDir + '/' + newName.trim()
+    if (newPath === oldPath) { setRenaming(null); return }
+    try {
+      await window.electronAPI.renameFile(oldPath, newPath)
+      if (selectedFile === oldPath) setSelectedFile(newPath)
+      refreshTree()
+    } catch (err: any) {
+      alert(t('codeTab.renameError') + ': ' + err.message)
+    }
+    setRenaming(null)
+  }, [renaming, selectedFile, refreshTree, t])
+
+  const handleDelete = useCallback(() => {
+    if (!fileCtxMenu) return
+    const node = fileCtxMenu.node
+    if (!window.confirm(t('codeTab.confirmDelete', { name: node.name }))) { setFileCtxMenu(null); return }
+    window.electronAPI.deleteFile(node.path)
+      .then(() => {
+        if (selectedFile === node.path) {
+          setSelectedFile(null)
+          setFileContent('')
+          setIsDirty(false)
+        }
+        refreshTree()
+        setFileCtxMenu(null)
+      })
+      .catch((err) => {
+        alert(t('codeTab.deleteError') + ': ' + err.message)
+        setFileCtxMenu(null)
+      })
+  }, [fileCtxMenu, selectedFile, refreshTree, t])
+
+  // New file / new folder from blank area
+  const handleNewFile = useCallback(() => {
+    setCreatingItem({ dir: realPath, isDir: false })
+    setBlankCtxMenu(null)
+  }, [realPath])
+
+  const handleNewFolder = useCallback(() => {
+    setCreatingItem({ dir: realPath, isDir: true })
+    setBlankCtxMenu(null)
+  }, [realPath])
+
+  const commitCreateItem = useCallback(async (name: string) => {
+    if (!creatingItem || !name.trim()) { setCreatingItem(null); return }
+    const fullPath = creatingItem.dir.replace(/\\/g, '/') + '/' + name.trim()
+    try {
+      if (creatingItem.isDir) {
+        await window.electronAPI.writeFile(fullPath + '/.keep', '')
+      } else {
+        await window.electronAPI.writeFile(fullPath, '')
+      }
+      refreshTree()
+      // Auto-open newly created file
+      if (!creatingItem.isDir) {
+        handleSelectFile({ name: name.trim(), path: fullPath, isDir: false })
+      }
+    } catch (err: any) {
+      alert(t('codeTab.saveError') + ': ' + err.message)
+    }
+    setCreatingItem(null)
+  }, [creatingItem, refreshTree, handleSelectFile, t])
 
   // When diff context clears via file select, don't clear selectedFile
   const isDiffMode = !!codeViewContext
@@ -1934,17 +2189,68 @@ function CodeTab({
     ? codeViewContext.filePath.split(/[/\\]/).pop() || codeViewContext.filePath
     : (selectedFile?.split(/[/\\]/).pop() || '')
 
+  // Inline input for new file/folder only (rename renders inside FileTreeNode)
+  const InlineInput = creatingItem ? (
+    <div className="filetree-file" style={{ paddingLeft: 8 }}>
+      <span className="filetree-icon">{creatingItem.isDir ? '📁' : '📄'}</span>
+      <input
+        ref={renameRef}
+        className="rename-input"
+        defaultValue={creatingItem.isDir ? 'new-folder' : 'new-file'}
+        onBlur={(e) => commitCreateItem(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commitCreateItem(e.target.value)
+          if (e.key === 'Escape') setCreatingItem(null)
+          e.stopPropagation()
+        }}
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  ) : null
+
   return (
     <div className="code-tab">
       {/* File tree panel */}
       <div className="code-filetree">
         <div className="code-filetree-header">{projectName}</div>
-        <div className="code-filetree-body">
+        <div
+          ref={treeBodyRef}
+          className="code-filetree-body"
+          onContextMenu={handleBlankContextMenu}
+        >
           {fileTree.map((node) => (
-            <FileTreeNode key={node.path} node={node} depth={0} selectedFile={selectedFile} onSelect={handleSelectFile} />
+            <FileTreeNode key={node.path} node={node} depth={0} selectedFile={selectedFile} onSelect={handleSelectFile} onContextMenu={handleFileContextMenu} renaming={!!renaming && renaming.path === node.path} renameRef={renameRef} commitRename={commitRename} onCancelRename={() => setRenaming(null)} />
           ))}
+          {InlineInput}
         </div>
       </div>
+
+      {/* File context menu */}
+      {fileCtxMenu && (
+        <div
+          className="context-menu"
+          style={{ top: fileCtxMenu.y, left: fileCtxMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button className="context-menu-item" onClick={handleRevealItem}>{t('codeTab.openInFileManager')}</button>
+          <button className="context-menu-item" onClick={handleCopyPath}>{t('codeTab.copyPath')}</button>
+          <button className="context-menu-item" onClick={handleCopyRelativePath}>{t('codeTab.copyRelativePath')}</button>
+          <button className="context-menu-item" onClick={handleRenameStart}>{t('codeTab.rename')}</button>
+          <button className="context-menu-item danger" onClick={handleDelete}>{t('codeTab.delete')}</button>
+        </div>
+      )}
+
+      {/* Blank area context menu */}
+      {blankCtxMenu && (
+        <div
+          className="context-menu"
+          style={{ top: blankCtxMenu.y, left: blankCtxMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button className="context-menu-item" onClick={handleNewFile}>{t('codeTab.newFile')}</button>
+          <button className="context-menu-item" onClick={handleNewFolder}>{t('codeTab.newFolder')}</button>
+        </div>
+      )}
 
       {/* Editor panel */}
       <div className="code-editor-area">
@@ -1976,13 +2282,16 @@ function CodeTab({
         ) : selectedFile ? (
           <>
             <div className="code-editor-header">
-              <span className="code-editor-filename">{fileName}</span>
+              <span className="code-editor-filename">
+                {isDirty ? '● ' : ''}{fileName}
+              </span>
+              {saveToast && <span className="code-save-toast">{saveToast}</span>}
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
               {fileLoading ? (
                 <div className="code-editor-loading">Loading…</div>
               ) : (
-                <MonacoEditorLazy value={fileContent} language={editorLang} readOnly={false} />
+                <MonacoEditorLazy value={fileContent} language={editorLang} readOnly={false} onChange={handleEditorChange} />
               )}
             </div>
           </>
@@ -1997,7 +2306,7 @@ function CodeTab({
 }
 
 // Lazy Monaco wrappers (avoid loading Monaco until Code tab is used)
-function MonacoEditorLazy({ value, language, readOnly }: { value: string; language: string; readOnly: boolean }) {
+function MonacoEditorLazy({ value, language, readOnly, onChange }: { value: string; language: string; readOnly: boolean; onChange?: (value: string | undefined) => void }) {
   const [Editor, setEditor] = useState<any>(null)
   useEffect(() => {
     import('@monaco-editor/react').then((m) => setEditor(() => m.default))
@@ -2009,6 +2318,7 @@ function MonacoEditorLazy({ value, language, readOnly }: { value: string; langua
       value={value}
       language={language}
       theme="vs-dark"
+      onChange={onChange}
       options={{ readOnly, minimap: { enabled: true }, fontSize: 13, scrollBeyondLastLine: false, wordWrap: 'on' }}
     />
   )

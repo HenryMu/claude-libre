@@ -18,12 +18,33 @@
     "pendingSession": "New Session (not connected)",
     "addProject": "Add Project",
     "deleteProject": "Delete Project",
+    "openInFileManager": "Reveal in File Manager",
     "confirmDeleteProject": "Delete project \"{{path}}\"? All sessions will be permanently lost."
   },
   "tabs": {
     "conversation": "Conversation",
     "terminal": "Terminal",
     "code": "Code"
+  },
+  "codeTab": {
+    "openInFileManager": "Reveal in File Manager",
+    "rename": "Rename",
+    "delete": "Delete",
+    "confirmDelete": "Delete \"{{name}}\"?",
+    "newFileName": "New name:",
+    "saved": "Saved",
+    "saveError": "Save failed",
+    "deleted": "Deleted",
+    "deleteError": "Delete failed",
+    "renamed": "Renamed",
+    "renameError": "Rename failed",
+    "noFileSelected": "Select a file to view its content",
+    "copyPath": "Copy Path",
+    "copyRelativePath": "Copy Relative Path",
+    "pathCopied": "Path copied",
+    "newFile": "New File",
+    "newFolder": "New Folder",
+    "newItemName": "Name:"
   },
   "conversation": {
     "selectProject": "Select a project to view sessions",

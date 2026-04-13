@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { app } from 'electron'
 import type { ClaudeConfig, ProfileData } from '../shared/types'
 
 const CONFIG_KEYS: (keyof ClaudeConfig)[] = [
@@ -11,12 +12,26 @@ const CONFIG_KEYS: (keyof ClaudeConfig)[] = [
   'ANTHROPIC_SMALL_FAST_MODEL'
 ]
 
-export function getConfigPath(home: string): string {
+function getProfilesDir(): string {
+  return path.join(app.getPath('userData'), 'profiles')
+}
+
+function getConfigPath(home: string): string {
   return path.join(home, '.claude', 'settings.json')
 }
 
-export function getProfilesDir(home: string): string {
-  return path.join(home, '.claude-libre', 'profiles')
+// Migration: copy old profiles from ~/.claude-libre/profiles to userData/profiles
+export function migrateProfilesIfNeeded(home: string): void {
+  const oldDir = path.join(home, '.claude-libre', 'profiles')
+  const newDir = getProfilesDir()
+  if (!fs.existsSync(oldDir) || fs.existsSync(newDir)) return
+  try {
+    fs.mkdirSync(newDir, { recursive: true })
+    const files = fs.readdirSync(oldDir).filter(f => f.endsWith('.json'))
+    for (const file of files) {
+      fs.copyFileSync(path.join(oldDir, file), path.join(newDir, file))
+    }
+  } catch { /* ignore migration errors */ }
 }
 
 export function readConfigFile(home: string): string {
@@ -95,8 +110,8 @@ export function writeClaudeConfig(home: string, config: ClaudeConfig): void {
   }
 }
 
-export function listProfiles(home: string): ProfileData[] {
-  const profilesDir = getProfilesDir(home)
+export function listProfiles(): ProfileData[] {
+  const profilesDir = getProfilesDir()
   try {
     fs.mkdirSync(profilesDir, { recursive: true })
     const files = fs.readdirSync(profilesDir).filter(f => f.endsWith('.json'))
@@ -113,8 +128,8 @@ export function listProfiles(home: string): ProfileData[] {
   }
 }
 
-export function saveProfile(home: string, profile: ProfileData): void {
-  const profilesDir = getProfilesDir(home)
+export function saveProfile(profile: ProfileData): void {
+  const profilesDir = getProfilesDir()
   fs.mkdirSync(profilesDir, { recursive: true })
 
   const now = new Date().toISOString()
@@ -133,8 +148,8 @@ export function saveProfile(home: string, profile: ProfileData): void {
   )
 }
 
-export function deleteProfile(home: string, profileId: string): void {
-  const filePath = path.join(getProfilesDir(home), `${profileId}.json`)
+export function deleteProfile(profileId: string): void {
+  const filePath = path.join(getProfilesDir(), `${profileId}.json`)
   try {
     fs.unlinkSync(filePath)
   } catch { /* ignore if not found */ }

@@ -51,7 +51,15 @@
       "mcp__fetch__fetch",
       "Bash(ls -la /Users/ze/code/Claude-Code-GUI/logo*)",
       "Bash(sips -g all /Users/ze/code/Claude-Code-GUI/logo.icns)",
-      "Bash(pip3 install:*)"
+      "Bash(pip3 install:*)",
+      "Bash(grep -l '\"cwd\"' \"C:/Users/aiweo/.claude/projects/G--learn-claude-code-desktop/\"*.jsonl)",
+      "Bash(magick --version)",
+      "Bash(convert --version)",
+      "Bash(py --version)",
+      "Bash(pip --version)",
+      "Bash(pip3 --version)",
+      "Bash(where python:*)",
+      "Bash(where python3:*)"
     ]
   }
 }

@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { SessionWatcher } from './session-watcher'
 import { ClaudeManager } from './claude-manager'
-import { readClaudeConfig, writeClaudeConfig, readConfigFile, writeConfigFile, listProfiles, saveProfile, deleteProfile } from './config-manager'
+import { readClaudeConfig, writeClaudeConfig, readConfigFile, writeConfigFile, listProfiles, saveProfile, deleteProfile, migrateProfilesIfNeeded } from './config-manager'
 import { sanitizePath } from './path-utils'
 import type { ClaudeConfig, ProfileData, FileNode, ImageAttachment, SubmitMessageRequest } from '../shared/types'
 
@@ -42,6 +42,9 @@ export function registerIpcHandlers(
   homeDir: string,
   mainWindow: BrowserWindow
 ): void {
+  // Migrate profiles from old location if needed
+  migrateProfilesIfNeeded(homeDir)
+
   // ===== Claude process management =====
 
   ipcMain.handle(
@@ -126,15 +129,15 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('list-profiles', () => {
-    return listProfiles(homeDir)
+    return listProfiles()
   })
 
   ipcMain.handle('save-profile', (_, profile: ProfileData) => {
-    saveProfile(homeDir, profile)
+    saveProfile(profile)
   })
 
   ipcMain.handle('delete-profile', (_, profileId: string) => {
-    deleteProfile(homeDir, profileId)
+    deleteProfile(profileId)
   })
 
   // ===== Session management =====

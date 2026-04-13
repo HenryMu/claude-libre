@@ -895,16 +895,16 @@ export class ClaudeManager {
   }
 
   /** Spawn a new Claude session (no --resume). Returns processKey. */
-  async spawnNew(projectSanitizedName: string, cols: number, rows: number): Promise<{ processKey: string; pid: number }> {
+  async spawnNew(projectSanitizedName: string, cols: number, rows: number, realPath?: string): Promise<{ processKey: string; pid: number }> {
     if (this.processes.size >= MAX_CONCURRENT_PROCESSES) {
       throw new Error(`Maximum ${MAX_CONCURRENT_PROCESSES} concurrent sessions reached. Disconnect a session first.`)
     }
     const processKey = this.generateKey()
-    return { processKey, ...this.spawnClaude(processKey, projectSanitizedName, [], cols, rows, null) }
+    return { processKey, ...this.spawnClaude(processKey, projectSanitizedName, [], cols, rows, null, realPath) }
   }
 
   /** Resume an existing session. processKey = sessionId. */
-  async resume(projectSanitizedName: string, sessionId: string, cols: number, rows: number): Promise<{ processKey: string; pid: number }> {
+  async resume(projectSanitizedName: string, sessionId: string, cols: number, rows: number, realPath?: string): Promise<{ processKey: string; pid: number }> {
     // Kill existing PTY for this session if any
     await this.killBySessionId(sessionId)
 
@@ -913,7 +913,7 @@ export class ClaudeManager {
     }
 
     const processKey = sessionId
-    return { processKey, ...this.spawnClaude(processKey, projectSanitizedName, ['--resume', sessionId], cols, rows, sessionId) }
+    return { processKey, ...this.spawnClaude(processKey, projectSanitizedName, ['--resume', sessionId], cols, rows, sessionId, realPath) }
   }
 
   private spawnClaude(
@@ -922,9 +922,10 @@ export class ClaudeManager {
     args: string[],
     cols: number,
     rows: number,
-    sessionId: string | null
+    sessionId: string | null,
+    realPath?: string
   ): { pid: number } {
-    const realPath = unsanitizePath(projectSanitizedName)
+    const resolvedPath = realPath || unsanitizePath(projectSanitizedName)
     const isWin = process.platform === 'win32'
     let ptyProcess: IPty
 
@@ -940,14 +941,14 @@ export class ClaudeManager {
         const claudeArgs = args.length > 0 ? `claude ${args.join(' ')}` : 'claude'
         ptyProcess = pty.spawn(shell, ['/c', claudeArgs], {
           name: 'xterm-256color', cols: cols || 80, rows: rows || 24,
-          cwd: realPath,
+          cwd: resolvedPath,
           env: spawnEnv
         })
       } else {
         const claudeExecutable = this.resolveClaudeExecutable(spawnEnv)
         ptyProcess = pty.spawn(claudeExecutable, args, {
           name: 'xterm-256color', cols: cols || 80, rows: rows || 24,
-          cwd: realPath,
+          cwd: resolvedPath,
           env: spawnEnv
         })
       }
@@ -958,7 +959,7 @@ export class ClaudeManager {
 
     const entry: ProcessEntry = {
       pty: ptyProcess, processKey, projectSanitizedName, sessionId,
-      cwd: realPath, status: 'running', cols: cols || 80, rows: rows || 24
+      cwd: resolvedPath, status: 'running', cols: cols || 80, rows: rows || 24
     }
     this.processes.set(processKey, entry)
 
@@ -988,7 +989,7 @@ export class ClaudeManager {
       this.send('pty-exited', { processKey, projectSanitizedName, exitCode })
     })
 
-    this.send('pty-spawned', { processKey, projectSanitizedName, sessionId, cwd: realPath, pid: ptyProcess.pid })
+    this.send('pty-spawned', { processKey, projectSanitizedName, sessionId, cwd: resolvedPath, pid: ptyProcess.pid })
     return { pid: ptyProcess.pid }
   }
 

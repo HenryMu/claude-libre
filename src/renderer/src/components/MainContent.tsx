@@ -747,10 +747,12 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const [fileMentions, setFileMentions] = useState<FileMentionItem[]>([])
   const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([])
   const [caretIndex, setCaretIndex] = useState(0)
+  const [pendingStuck, setPendingStuck] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const successMsgRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const cancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stuckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasHydratedSessionRef = useRef(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const turns = useMemo(() => normalizeSessionLines(sessionDetails?.lines || []), [sessionDetails?.lines])
@@ -1110,6 +1112,25 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
 
   useEffect(() => { if (inputValue) { setPermissionPrompt(null); setPermissionCountdown(0) } }, [inputValue])
 
+  // Stuck-pending detector: if pending + connected + no turns for 12s, auto-retry Enter and show hint
+  useEffect(() => {
+    const watching = isPending && isConnected && turns.length === 0
+    if (!watching) {
+      if (stuckTimerRef.current) { clearTimeout(stuckTimerRef.current); stuckTimerRef.current = null }
+      setPendingStuck(false)
+      return
+    }
+    if (stuckTimerRef.current) return
+    stuckTimerRef.current = setTimeout(() => {
+      stuckTimerRef.current = null
+      setPendingStuck(true)
+      if (processKey) window.electronAPI.ptyWrite(processKey, '\r')
+    }, 12000)
+    return () => {
+      if (stuckTimerRef.current) { clearTimeout(stuckTimerRef.current); stuckTimerRef.current = null }
+    }
+  }, [isPending, isConnected, turns.length, processKey])
+
   if (!selectedSession) {
     return (
       <div className="tab-pane">
@@ -1137,7 +1158,20 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
           <>
             {isPending && isConnected && turns.length === 0 && (
               <div className="draft-pending-banner">
-                <span className="thinking-label">{t('conversation.creatingSessionHint')}</span>
+                {pendingStuck ? (
+                  <>
+                    <span className="thinking-label">{t('conversation.creatingSessionStuck')}</span>
+                    <button
+                      className="btn"
+                      style={{ marginLeft: 12, fontSize: 12, padding: '2px 10px' }}
+                      onClick={() => { if (processKey) window.electronAPI.ptyWrite(processKey, '\r') }}
+                    >
+                      {t('conversation.retryEnter')}
+                    </button>
+                  </>
+                ) : (
+                  <span className="thinking-label">{t('conversation.creatingSessionHint')}</span>
+                )}
               </div>
             )}
             {turns.map((turn) => (

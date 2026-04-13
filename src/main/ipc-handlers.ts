@@ -47,7 +47,8 @@ export function registerIpcHandlers(
   ipcMain.handle(
     'spawn-claude',
     async (_, projectSanitizedName: string, cols: number, rows: number) => {
-      return claudeManager.spawnNew(projectSanitizedName, cols, rows)
+      const realPath = sessionWatcher.getRealPath(projectSanitizedName)
+      return claudeManager.spawnNew(projectSanitizedName, cols, rows, realPath)
     }
   )
 
@@ -60,7 +61,8 @@ export function registerIpcHandlers(
       cols: number,
       rows: number
     ) => {
-      return claudeManager.resume(projectSanitizedName, sessionId, cols, rows)
+      const realPath = sessionWatcher.getRealPath(projectSanitizedName)
+      return claudeManager.resume(projectSanitizedName, sessionId, cols, rows, realPath)
     }
   )
 

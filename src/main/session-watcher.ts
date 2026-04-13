@@ -128,9 +128,15 @@ export class SessionWatcher {
 
     // Update project index
     if (!this.projectIndexes.has(sanitizedName)) {
+      // On Windows, unsanitizePath cannot distinguish path-separator dashes from
+      // dashes in directory names (e.g. "G--learn-claude-code-desktop" would be
+      // incorrectly reconstructed as "G:\learn\claude\code\desktop").
+      // Use the cwd recorded by Claude CLI in session data when available.
+      const fallbackPath = unsanitizePath(sanitizedName)
+      const realPath = (meta.cwd && fs.existsSync(meta.cwd)) ? meta.cwd : fallbackPath
       this.projectIndexes.set(sanitizedName, {
         sanitizedName,
-        realPath: unsanitizePath(sanitizedName),
+        realPath,
         sessions: new Map()
       })
     }
@@ -302,6 +308,11 @@ export class SessionWatcher {
     if (project) project.sessions.delete(sessionId)
 
     this.send('session-deleted', { projectSanitizedName: sanitizedName, sessionId })
+  }
+
+  /** Return the real filesystem path for a project, falling back to unsanitizePath */
+  getRealPath(sanitizedName: string): string {
+    return this.projectIndexes.get(sanitizedName)?.realPath ?? unsanitizePath(sanitizedName)
   }
 
   /** Add a project: create directory and register in index */

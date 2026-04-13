@@ -43,6 +43,8 @@
     "sendAndCreate": "Send & Create Session",
     "creatingSession": "Creating...",
     "creatingSessionHint": "Preparing Claude and sending your first prompt...",
+    "creatingSessionStuck": "Taking longer than expected — Enter may not have reached Claude. Auto-retried once. If still stuck, switch to the Terminal tab to check.",
+    "retryEnter": "Retry Enter",
     "noMessages": "No messages yet",
     "noMessagesConnect": "No messages yet. Connect to start.",
     "newSessionNotConnected": "New session — not connected yet",

@@ -43,6 +43,8 @@
     "sendAndCreate": "发送并新建会话",
     "creatingSession": "正在创建...",
     "creatingSessionHint": "正在准备 Claude 会话并发送首条消息...",
+    "creatingSessionStuck": "准备时间较长，可能是 Enter 未送达。已自动重试，若仍卡住请切换「终端」标签查看。",
+    "retryEnter": "重发 Enter",
     "noMessages": "暂无消息",
     "noMessagesConnect": "暂无消息，请先连接。",
     "newSessionNotConnected": "新会话 — 尚未连接",

@@ -36,8 +36,7 @@
       "icon": "logo.ico",
       "target": [
         { "target": "nsis", "arch": ["x64", "arm64"] }
-      ],
-      "signAndEditExecutable": false
+      ]
     },
     "publish": {
       "provider": "github",

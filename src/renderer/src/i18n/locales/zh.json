@@ -119,7 +119,12 @@
   },
   "toolbar": {
     "model": "模型",
-    "effort": "深度"
+    "effort": "深度",
+    "permMode": "模式",
+    "permNormal": "普通",
+    "permAuto": "自动允许",
+    "permFullAuto": "全自动驾驶",
+    "permPlan": "计划"
   },
   "commands": {
     "/model": "切换模型",

@@ -1343,6 +1343,17 @@ body {
   color: var(--text-primary);
 }
 
+.toolbar-btn-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toolbar-dropdown-item-active {
+  background: var(--bg-hover);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* Command autocomplete */
 .command-autocomplete {
   position: absolute;

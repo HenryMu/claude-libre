@@ -743,6 +743,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
   const [isCancellingTurn, setIsCancellingTurn] = useState(false)
   const [currentModel, setCurrentModel] = useState<string>('sonnet')
   const [currentEffort, setCurrentEffort] = useState<string>('medium')
+  const [permMode, setPermMode] = useState<'normal' | 'auto' | 'fullAuto' | 'plan'>('normal')
   const [connectError, setConnectError] = useState<string | null>(null)
   const [fileMentions, setFileMentions] = useState<FileMentionItem[]>([])
   const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([])
@@ -797,6 +798,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
     hasHydratedSessionRef.current = false
     setCurrentModel('sonnet')
     setCurrentEffort('medium')
+    setPermMode('normal')
     if (successMsgRef.current) { clearTimeout(successMsgRef.current); successMsgRef.current = null }
     if (cancelTimerRef.current) { clearTimeout(cancelTimerRef.current); cancelTimerRef.current = null }
   }, [selectedSession])
@@ -950,6 +952,29 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
       setIsCancellingTurn(false)
       cancelTimerRef.current = null
     }, 1500)
+  }
+
+  const handlePermModeChange = (mode: 'normal' | 'auto' | 'fullAuto' | 'plan') => {
+    const prevMode = permMode
+    setPermMode(mode)
+    if (!processKey) return
+    if (mode === 'auto') {
+      // Shift+Tab toggles acceptEdits mode in Claude Code CLI
+      window.electronAPI.ptyWrite(processKey, '\x1b[Z')
+    } else if (mode === 'fullAuto') {
+      // Client-side: auto-approve all permission prompts
+      window.electronAPI.setFullAuto(processKey, true)
+    } else if (mode === 'normal') {
+      if (prevMode === 'auto') {
+        window.electronAPI.ptyWrite(processKey, '\x1b[Z')
+      } else if (prevMode === 'plan') {
+        window.electronAPI.ptyWrite(processKey, '/plan\r')
+      } else if (prevMode === 'fullAuto') {
+        window.electronAPI.setFullAuto(processKey, false)
+      }
+    } else if (mode === 'plan') {
+      window.electronAPI.ptyWrite(processKey, '/plan\r')
+    }
   }
 
   const isBusy = conversationState !== 'idle' && conversationState !== 'waiting_permission' && isConnected && !!processKey
@@ -1313,7 +1338,7 @@ function ConversationTab({ project, realPath, selectedSession, sessionDetails, i
         }} disabled={!isConnected || isSubmittingMessage} title={t('conversation.uploadImage')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
         </button>
-        <InputToolbar processKey={processKey} isConnected={isConnected} t={t} currentModel={currentModel} currentEffort={currentEffort} />
+        <InputToolbar processKey={processKey} isConnected={isConnected} t={t} currentModel={currentModel} currentEffort={currentEffort} permMode={permMode} onPermModeChange={handlePermModeChange} />
       </div>
       )}
       {/* Image preview strip */}
@@ -1662,28 +1687,40 @@ function getToolSummary(name: string, input: Record<string, unknown>, isPlanCard
 
 // ===== Input Toolbar (Model + Effort selectors) =====
 
-function InputToolbar({ processKey, isConnected, t, currentModel, currentEffort }: {
+const PERM_MODE_OPTIONS = [
+  { label: 'permNormal', value: 'normal' as const },
+  { label: 'permAuto', value: 'auto' as const },
+  { label: 'permFullAuto', value: 'fullAuto' as const },
+  { label: 'permPlan', value: 'plan' as const },
+]
+
+function InputToolbar({ processKey, isConnected, t, currentModel, currentEffort, permMode, onPermModeChange }: {
   processKey: string | null
   isConnected: boolean
   t: (key: string) => string
   currentModel: string
   currentEffort: string
+  permMode: 'normal' | 'auto' | 'fullAuto' | 'plan'
+  onPermModeChange: (mode: 'normal' | 'auto' | 'fullAuto' | 'plan') => void
 }) {
   const [modelOpen, setModelOpen] = useState(false)
   const [effortOpen, setEffortOpen] = useState(false)
+  const [permOpen, setPermOpen] = useState(false)
   const modelRef = useRef<HTMLDivElement>(null)
   const effortRef = useRef<HTMLDivElement>(null)
+  const permRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelOpen(false)
       if (effortRef.current && !effortRef.current.contains(e.target as Node)) setEffortOpen(false)
+      if (permRef.current && !permRef.current.contains(e.target as Node)) setPermOpen(false)
     }
-    if (modelOpen || effortOpen) {
+    if (modelOpen || effortOpen || permOpen) {
       document.addEventListener('mousedown', handler)
       return () => document.removeEventListener('mousedown', handler)
     }
-  }, [modelOpen, effortOpen])
+  }, [modelOpen, effortOpen, permOpen])
 
   const sendCommand = (cmd: string) => {
     if (!processKey || !isConnected) return
@@ -1702,7 +1739,7 @@ function InputToolbar({ processKey, isConnected, t, currentModel, currentEffort 
       <div ref={modelRef} className="toolbar-selector">
         <button
           className="toolbar-btn"
-          onClick={() => { setModelOpen(!modelOpen); setEffortOpen(false) }}
+          onClick={() => { setModelOpen(!modelOpen); setEffortOpen(false); setPermOpen(false) }}
           disabled={!isConnected}
           title={t('toolbar.model')}
         >
@@ -1728,7 +1765,7 @@ function InputToolbar({ processKey, isConnected, t, currentModel, currentEffort 
       <div ref={effortRef} className="toolbar-selector">
         <button
           className="toolbar-btn"
-          onClick={() => { setEffortOpen(!effortOpen); setModelOpen(false) }}
+          onClick={() => { setEffortOpen(!effortOpen); setModelOpen(false); setPermOpen(false) }}
           disabled={!isConnected}
           title={t('toolbar.effort')}
         >
@@ -1745,6 +1782,32 @@ function InputToolbar({ processKey, isConnected, t, currentModel, currentEffort 
                 onMouseDown={(e) => { e.preventDefault(); sendCommand(`/effort ${opt.value}`); setEffortOpen(false) }}
               >
                 {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div ref={permRef} className="toolbar-selector">
+        <button
+          className={`toolbar-btn ${permMode !== 'normal' ? 'toolbar-btn-active' : ''}`}
+          onClick={() => { setPermOpen(!permOpen); setModelOpen(false); setEffortOpen(false) }}
+          disabled={!isConnected}
+          title={t('toolbar.permMode')}
+        >
+          <span className="toolbar-btn-icon">{permMode === 'auto' ? '⚡' : permMode === 'fullAuto' ? '🤖' : permMode === 'plan' ? '📋' : '🔒'}</span>
+          <span className="toolbar-btn-label">{t(`toolbar.perm${permMode.charAt(0).toUpperCase() + permMode.slice(1)}`)}</span>
+          <span className="toolbar-btn-arrow">▾</span>
+        </button>
+        {permOpen && (
+          <div className="toolbar-dropdown toolbar-dropdown-wide">
+            {PERM_MODE_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                className={`toolbar-dropdown-item ${permMode === opt.value ? 'toolbar-dropdown-item-active' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); onPermModeChange(opt.value); setPermOpen(false) }}
+              >
+                {t(`toolbar.${opt.label}`)}
               </button>
             ))}
           </div>

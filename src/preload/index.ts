@@ -83,6 +83,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.send('pty-resize', processKey, cols, rows),
   respondPermission: (processKey, response) =>
     ipcRenderer.send('permission-respond', processKey, response),
+  setFullAuto: (processKey, enabled) =>
+    ipcRenderer.send('set-full-auto', processKey, enabled),
   submitMessage: (request) =>
     ipcRenderer.invoke('submit-message', request),
 

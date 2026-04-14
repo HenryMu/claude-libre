@@ -27,7 +27,7 @@ const electronAPI: ElectronAPI = {
   // Auto update actions
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
-  quitAndInstall: () => ipcRenderer.send('quit-and-install'),
+  quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
 
   // App info
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

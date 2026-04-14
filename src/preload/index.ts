@@ -2,6 +2,32 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { ElectronAPI } from '../shared/types'
 
 const electronAPI: ElectronAPI = {
+  // Auto update events
+  onUpdateAvailable: (callback) => {
+    const handler = (_: unknown, data: unknown) => callback(data as any)
+    ipcRenderer.on('update-available', handler)
+    return () => ipcRenderer.removeListener('update-available', handler)
+  },
+  onUpdateProgress: (callback) => {
+    const handler = (_: unknown, data: unknown) => callback(data as any)
+    ipcRenderer.on('update-progress', handler)
+    return () => ipcRenderer.removeListener('update-progress', handler)
+  },
+  onUpdateDownloaded: (callback) => {
+    const handler = (_: unknown, data: unknown) => callback(data as any)
+    ipcRenderer.on('update-downloaded', handler)
+    return () => ipcRenderer.removeListener('update-downloaded', handler)
+  },
+  onUpdateError: (callback) => {
+    const handler = (_: unknown, data: unknown) => callback(data as any)
+    ipcRenderer.on('update-error', handler)
+    return () => ipcRenderer.removeListener('update-error', handler)
+  },
+
+  // Auto update actions
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  quitAndInstall: () => ipcRenderer.send('quit-and-install'),
   // Session data events
   onInitialData: (callback) => {
     const handler = (_: unknown, data: unknown) => callback(data as any)

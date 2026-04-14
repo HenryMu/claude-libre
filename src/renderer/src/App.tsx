@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react'
 import Sidebar from './components/Sidebar'
 import MainContent from './components/MainContent'
 import SettingsModal from './components/SettingsModal'
+import UpdateNotification from './components/UpdateNotification'
 import { useSessionWatcher } from './hooks/useSessionWatcher'
 import { useClaudeManager } from './hooks/useClaudeManager'
 import type { SessionMeta, CodeViewContext } from '../../shared/types'
@@ -285,6 +286,7 @@ export default function App() {
         onClearCodeView={() => setCodeViewContext(null)}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <UpdateNotification />
     </div>
   )
 }

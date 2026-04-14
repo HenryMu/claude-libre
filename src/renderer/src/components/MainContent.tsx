@@ -1901,6 +1901,14 @@ function FileTreeNode({
   onCancelRename: () => void
 }) {
   const [expanded, setExpanded] = useState(depth === 0)
+  const [children, setChildren] = useState<FileNode[] | undefined>(node.children)
+
+  const handleToggle = () => {
+    if (!expanded && !children?.length) {
+      window.electronAPI.readDir(node.path).then(setChildren).catch(() => setChildren([]))
+    }
+    setExpanded(!expanded)
+  }
 
   const renameRow = (
     <div
@@ -1931,7 +1939,7 @@ function FileTreeNode({
           <div
             className="filetree-dir"
             style={{ paddingLeft: depth * 12 + 8 }}
-            onClick={() => setExpanded(!expanded)}
+            onClick={handleToggle}
             onContextMenu={(e) => onContextMenu(e, node)}
           >
             <span className="filetree-arrow">{expanded ? '▾' : '▸'}</span>
@@ -1939,7 +1947,7 @@ function FileTreeNode({
             <span className="filetree-name">{node.name}</span>
           </div>
         )}
-        {expanded && node.children?.map((child) => (
+        {expanded && children?.map((child) => (
           <FileTreeNode key={child.path} node={child} depth={depth + 1} selectedFile={selectedFile} onSelect={onSelect} onContextMenu={onContextMenu} renaming={false} renameRef={renameRef} commitRename={commitRename} onCancelRename={onCancelRename} />
         ))}
       </div>

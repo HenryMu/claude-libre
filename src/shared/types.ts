@@ -211,6 +211,38 @@ export interface PermissionFailedPayload {
   processKey: string
 }
 
+// ===== Auto Update =====
+
+export interface UpdateInfoPayload {
+  version: string
+  releaseDate?: string
+  releaseNotes?: string
+  currentVersion: string
+}
+
+export interface UpdateProgressPayload {
+  percent: number
+  transferred: number
+  total: number
+  speed: number
+}
+
+export interface UpdateDownloadedPayload {
+  version: string
+}
+
+export interface UpdateErrorPayload {
+  message: string
+}
+
+export type UpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
 // ===== Electron API (exposed via preload) =====
 
 export interface ElectronAPI {
@@ -277,4 +309,15 @@ export interface ElectronAPI {
 
   // Image upload
   selectImages: () => Promise<ImageAttachment[]>
+
+  // Auto update events
+  onUpdateAvailable: (callback: (data: UpdateInfoPayload) => void) => () => void
+  onUpdateProgress: (callback: (data: UpdateProgressPayload) => void) => () => void
+  onUpdateDownloaded: (callback: (data: UpdateDownloadedPayload) => void) => () => void
+  onUpdateError: (callback: (data: UpdateErrorPayload) => void) => () => void
+
+  // Auto update actions
+  checkForUpdates: () => Promise<{ updateInfo: any; error?: string }>
+  downloadUpdate: () => Promise<void>
+  quitAndInstall: () => void
 }

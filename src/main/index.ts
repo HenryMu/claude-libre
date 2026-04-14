@@ -4,6 +4,7 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { SessionWatcher } from './session-watcher'
 import { ClaudeManager } from './claude-manager'
 import { registerIpcHandlers } from './ipc-handlers'
+import { initAutoUpdater, stopAutoUpdater } from './auto-updater'
 import { getProjectsDir } from './path-utils'
 
 let mainWindow: BrowserWindow | null = null
@@ -178,6 +179,7 @@ function createWindow(): void {
   claudeManager = new ClaudeManager(mainWindow)
   registerIpcHandlers(sessionWatcher, claudeManager, app.getPath('home'), mainWindow)
   sessionWatcher.start()
+  initAutoUpdater(mainWindow)
 }
 
 // Set app name before ready so macOS menu bar shows correct name in dev mode
@@ -225,6 +227,7 @@ app.on('second-instance', () => {
 })
 
 function cleanup(): void {
+  stopAutoUpdater()
   claudeManager?.cleanup()
   sessionWatcher?.stop()
   claudeManager = null
